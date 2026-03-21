@@ -1,0 +1,34 @@
+name: mintfinder_1
+description: "A new Flutter project."
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.10.7
+
+dependencies:
+  flutter:
+    sdk: flutter
+  camera: ^0.11.0+2
+  image_picker: ^1.1.2
+  image: ^4.2.0
+  tflite_flutter: ^0.11.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_launcher_icons: ^0.13.1
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/models/mf_m2.tflite # everything can be changed sa frontend, and this part is an pag mention hin model file
+    - assets/models/mf_labels.json
+    - assets/images/logo.png
+    - assets/images/bg_pattern.jpg
+
+flutter_launcher_icons:
+  android: true
+  ios: false
+  image_path: "assets/images/logo.png"
