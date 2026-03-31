@@ -109,20 +109,30 @@ class _CapturePageState extends State<CapturePage>
 
       _scanController.stop();
 
+      // ── CLEAN LABEL LOGIC ──────────────────────────────────────────
+      // Converts "0 Lemon Basil" -> "lemon_basil" to match plant_info.dart keys
+      final String cleanKey = prediction.label
+          .toLowerCase()
+          .replaceFirst(RegExp(r'^\d+\s+'), '') // Remove leading numbers
+          .replaceAll(' ', '_')                 // Replace spaces with underscores
+          .trim();
+
       if (!prediction.accepted) {
         await showDialog(
           context: context,
           builder: (_) => AlertDialog(
-            title: const Text("Not Recognized"),
+            backgroundColor: const Color(0xFF2E4F10),
+            title: const Text("Not Recognized", style: TextStyle(color: Colors.white)),
             content: Text(
-              "Not recognized. Please capture a clear leaf image.\n\n"
-              "Confidence: ${(prediction.confidence * 100).toStringAsFixed(2)}%\n"
-              "Green ratio: ${(prediction.greenRatio * 100).toStringAsFixed(2)}%",
+              "Could not identify the plant clearly. Please try again with a clear leaf image.\n\n"
+              "Confidence: ${(prediction.confidence * 100).toStringAsFixed(1)}%\n"
+              "Green ratio: ${(prediction.greenRatio * 100).toStringAsFixed(1)}%",
+              style: const TextStyle(color: Colors.white70),
             ),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(context),
-                child: const Text("OK"),
+                child: const Text("OK", style: TextStyle(color: Colors.lightGreenAccent)),
               ),
             ],
           ),
@@ -135,11 +145,12 @@ class _CapturePageState extends State<CapturePage>
         return;
       }
 
+      // ── NAVIGATE TO RESULT ────────────────────────────────────────
       await Navigator.push(
         context,
         MaterialPageRoute(
           builder: (_) => ResultPage(
-            label: prediction.label,
+            label: cleanKey, // Use the cleaned key for the database lookup
             confidence: prediction.confidence,
             previewBytes: prediction.previewBytes,
           ),
@@ -169,7 +180,6 @@ class _CapturePageState extends State<CapturePage>
     if (_cameraController == null || !_cameraController!.value.isInitialized) {
       return const Center(child: CircularProgressIndicator());
     }
-
     return CameraPreview(_cameraController!);
   }
 
@@ -203,11 +213,13 @@ class _CapturePageState extends State<CapturePage>
                 ),
                 const Center(
                   child: Text(
-                    "Scanning...",
+                    "AI ANALYZING...",
                     style: TextStyle(
                       color: Colors.white,
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
+                      letterSpacing: 1.2,
+                      shadows: [Shadow(blurRadius: 10, color: Colors.black)],
                     ),
                   ),
                 ),
@@ -231,7 +243,8 @@ class _CapturePageState extends State<CapturePage>
   Widget build(BuildContext context) {
     if (_loading) {
       return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
+        backgroundColor: Color(0xFF456F1F),
+        body: Center(child: CircularProgressIndicator(color: Colors.white)),
       );
     }
 
@@ -241,7 +254,7 @@ class _CapturePageState extends State<CapturePage>
         backgroundColor: const Color(0xFF456F1F),
         elevation: 0,
         title: const Text(
-          "Capture Leaf",
+          "Identify Plant",
           style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
         ),
         iconTheme: const IconThemeData(color: Colors.white),
@@ -249,18 +262,14 @@ class _CapturePageState extends State<CapturePage>
       body: Column(
         children: [
           const SizedBox(height: 16),
-
-          // ── Camera Preview (fills available space) ──────────────
           Expanded(
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20),
               child: ClipRRect(
-                borderRadius: BorderRadius.circular(20),
+                borderRadius: BorderRadius.circular(24),
                 child: Container(
                   width: double.infinity,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(20),
-                  ),
+                  color: Colors.black12,
                   child: Stack(
                     fit: StackFit.expand,
                     children: [
@@ -275,89 +284,80 @@ class _CapturePageState extends State<CapturePage>
               ),
             ),
           ),
-
-          const SizedBox(height: 12),
-
-          // ── Hint text ───────────────────────────────────────────
+          const SizedBox(height: 16),
           const Text(
-            "Point at a leaf and tap capture",
-            style: TextStyle(color: Colors.white70, fontSize: 13),
+            "Center the leaf in the frame",
+            style: TextStyle(color: Colors.white70, fontSize: 14),
           ),
+          const SizedBox(height: 24),
+          _buildActionButtonBar(),
+          const SizedBox(height: 32),
+        ],
+      ),
+    );
+  }
 
-          const SizedBox(height: 8),
-
-          // ── Bottom action bar ───────────────────────────────────
-          Container(
-            padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 40),
-            decoration: BoxDecoration(
-              color: Colors.black.withOpacity(0.15),
-              borderRadius: const BorderRadius.only(
-                topLeft: Radius.circular(30),
-                topRight: Radius.circular(30),
-              ),
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                // Gallery button
-                Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    IconButton(
-                      iconSize: 54,
-                      color: Colors.white,
-                      onPressed: _predicting ? null : _pickFromGallery,
-                      icon: const Icon(Icons.image_outlined),
-                    ),
-                    const Text(
-                      "Gallery",
-                      style: TextStyle(color: Colors.white70, fontSize: 12),
-                    ),
-                  ],
-                ),
-
-                // Capture button
-                Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    GestureDetector(
-                      onTap: _predicting ? null : _captureFromCamera,
-                      child: Container(
-                        width: 76,
-                        height: 76,
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          shape: BoxShape.circle,
-                          border: Border.all(
-                            color: Colors.white54,
-                            width: 4,
-                          ),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withOpacity(0.2),
-                              blurRadius: 10,
-                              offset: const Offset(0, 4),
-                            ),
-                          ],
-                        ),
-                        child: const Icon(
-                          Icons.camera_alt,
-                          color: Color(0xFF456F1F),
-                          size: 36,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    const Text(
-                      "Capture",
-                      style: TextStyle(color: Colors.white70, fontSize: 12),
-                    ),
-                  ],
-                ),
-              ],
-            ),
+  Widget _buildActionButtonBar() {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 20),
+      padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 30),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(30),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        children: [
+          _iconActionButton(
+            icon: Icons.image_search_outlined,
+            label: "Gallery",
+            onTap: _predicting ? null : _pickFromGallery,
+          ),
+          _captureButton(),
+          _iconActionButton(
+            icon: Icons.info_outline,
+            label: "Help",
+            onTap: () {
+              // Optional help dialog or info
+            },
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _iconActionButton({required IconData icon, required String label, VoidCallback? onTap}) {
+    return InkWell(
+      onTap: onTap,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: Colors.white, size: 30),
+          const SizedBox(height: 4),
+          Text(label, style: const TextStyle(color: Colors.white70, fontSize: 11)),
+        ],
+      ),
+    );
+  }
+
+  Widget _captureButton() {
+    return GestureDetector(
+      onTap: _predicting ? null : _captureFromCamera,
+      child: Container(
+        padding: const EdgeInsets.all(4),
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          border: Border.all(color: Colors.white, width: 3),
+        ),
+        child: Container(
+          width: 60,
+          height: 60,
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            shape: BoxShape.circle,
+          ),
+          child: const Icon(Icons.camera_alt, color: Color(0xFF456F1F), size: 30),
+        ),
       ),
     );
   }

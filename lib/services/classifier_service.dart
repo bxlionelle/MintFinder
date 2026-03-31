@@ -29,18 +29,35 @@ class PlantClassifierService {
   late Interpreter _interpreter;
   late List<String> _labels;
 
+  // 1. Updated to 224 to match standard Teachable Machine / MobileNet input
   static const int inputSize = 224;
 
-  // stricter thresholds to reduce false predictions
   static const double confidenceThreshold = 0.65;
   static const double marginThreshold = 0.15;
   static const double greenRatioThreshold = 0.06;
 
   Future<void> loadModel() async {
-    _interpreter = await Interpreter.fromAsset('assets/models/mf_m2.tflite');
-    final raw = await rootBundle.loadString('assets/models/mf_labels.json');
-    final List<dynamic> decoded = jsonDecode(raw);
-    _labels = decoded.map((e) => e.toString()).toList();
+    try {
+      // Updated asset paths to match your new files
+      _interpreter = await Interpreter.fromAsset('assets/models/model_unquant.tflite');
+      
+      // 2. Updated Label Loading (TM labels are plain text, not JSON)
+      final rawLabels = await rootBundle.loadString('assets/models/labels.txt');
+      _labels = rawLabels
+          .split('\n')
+          .map((s) => s.trim())
+          .where((s) => s.isNotEmpty)
+          .map((s) {
+            // Teachable Machine often prefixes labels with index (e.g., "0 Gmelina")
+            // This regex removes the leading number and space if they exist
+            return s.replaceFirst(RegExp(r'^\d+\s+'), '');
+          })
+          .toList();
+          
+      print("Model and Labels loaded successfully. Classes: ${_labels.length}");
+    } catch (e) {
+      print("Error loading model: $e");
+    }
   }
 
   Future<PlantPrediction> predict(File imageFile) async {
@@ -48,34 +65,10 @@ class PlantClassifierService {
     final decoded = img.decodeImage(bytes);
 
     if (decoded == null) {
-      return PlantPrediction(
-        accepted: false,
-        label: "Invalid image",
-        confidence: 0,
-        secondBest: 0,
-        greenRatio: 0,
-        previewBytes: Uint8List(0),
-      );
+      return _invalidPrediction("Invalid image");
     }
 
-    /// =========================
-    /// OLD BOUNDING BOX METHOD
-    /// =========================
-    /*
-    final processed = _detectAndCropPlant(decoded);
-    final img.Image cropped = processed['cropped'] as img.Image;
-    final img.Image preview = processed['preview'] as img.Image;
-    final double greenRatio = processed['greenRatio'] as double;
-    */
-
-    /// =========================
-    /// NEW SIMPLER PIPELINE
-    /// =========================
-
     final img.Image cropped = _centerCropSquare(decoded);
-    final img.Image preview =
-        img.copyResize(cropped, width: cropped.width, height: cropped.height);
-
     final double greenRatio = _computeGreenRatio(cropped);
 
     final resized = img.copyResize(
@@ -85,7 +78,8 @@ class PlantClassifierService {
       interpolation: img.Interpolation.linear,
     );
 
-    final input = _imageToHsvTensor(resized);
+    // 3. Updated RGB Tensor Conversion (Normalization change)
+    final input = _imageToRgbTensor(resized);
 
     final output = List.generate(1, (_) => List.filled(_labels.length, 0.0));
     _interpreter.run(input, output);
@@ -99,130 +93,91 @@ class PlantClassifierService {
     final margin = confidence - secondBest;
     final label = _labels[maxIndex];
 
-    /// DEBUG (very helpful)
-    print("Prediction scores: $probs");
-    print("Predicted label: $label");
-    print("Confidence: $confidence");
-    print("Second best: $secondBest");
-    print("Green ratio: $greenRatio");
+    final bool isConfident = confidence >= confidenceThreshold;
+    final bool isDistinct = margin >= marginThreshold;
+    final bool isGreenEnough = greenRatio >= greenRatioThreshold;
 
-    final accepted = greenRatio >= greenRatioThreshold &&
-        confidence >= confidenceThreshold &&
-        margin >= marginThreshold;
+    final accepted = isConfident && isDistinct && isGreenEnough;
 
     return PlantPrediction(
       accepted: accepted,
       label: accepted
           ? label
-          : "Plant not recognized. Please capture a clear leaf image.",
+          : _getFailureReason(isGreenEnough, isConfident),
       confidence: confidence,
       secondBest: secondBest,
       greenRatio: greenRatio,
-      previewBytes: Uint8List.fromList(img.encodeJpg(preview, quality: 85)),
+      previewBytes: Uint8List.fromList(img.encodeJpg(resized, quality: 85)),
     );
   }
 
-  /// =========================
-  /// GREEN RATIO CALCULATION
-  /// =========================
-
-  double _computeGreenRatio(img.Image image) {
-    int greenPixels = 0;
-    final totalPixels = image.width * image.height;
-
-    for (int y = 0; y < image.height; y++) {
-      for (int x = 0; x < image.width; x++) {
-        final p = image.getPixel(x, y);
-        final r = p.r.toDouble();
-        final g = p.g.toDouble();
-        final b = p.b.toDouble();
-
-        //final isGreen = g > 55 && g > r * 1.08 && g > b * 1.08;
-        final isGreen = g > 35 && g > r * 1.05 && g > b * 1.05; // improves the dark leaf detection if may shadow/shade
-
-        if (isGreen) greenPixels++;
-      }
-    }
-
-    return totalPixels == 0 ? 0 : greenPixels / totalPixels;
-  }
-
-  /// =========================
-  /// OLD PLANT DETECTOR
-  /// (kept for reference)
-  /// =========================
-  /*
-  Map<String, dynamic> _detectAndCropPlant(img.Image image) {
-    ...
-  }
-  */
-
-  img.Image _centerCropSquare(img.Image image) {
-    final size = math.min(image.width, image.height);
-    final x = (image.width - size) ~/ 2;
-    final y = (image.height - size) ~/ 2;
-
-    return img.copyCrop(image, x: x, y: y, width: size, height: size);
-  }
-
-  List<List<List<List<double>>>> _imageToHsvTensor(img.Image image) {
+  /// Converts the image to a 4D shape [1, 224, 224, 3] 
+  /// Normalized to [-1, 1] for Teachable Machine
+  List<List<List<List<double>>>> _imageToRgbTensor(img.Image image) {
     return [
       List.generate(inputSize, (y) {
         return List.generate(inputSize, (x) {
           final p = image.getPixel(x, y);
-
-          final r = p.r / 255.0;
-          final g = p.g / 255.0;
-          final b = p.b / 255.0;
-
-          final hsv = _rgbToHsv(r, g, b);
-
-          return [hsv[0], hsv[1], hsv[2]];
+          // Teachable Machine / MobileNet normalization: (x - 127.5) / 127.5
+          return [
+            (p.r - 127.5) / 127.5,
+            (p.g - 127.5) / 127.5,
+            (p.b - 127.5) / 127.5,
+          ];
         });
       }),
     ];
   }
 
-  List<double> _rgbToHsv(double r, double g, double b) {
-    final maxVal = math.max(r, math.max(g, b));
-    final minVal = math.min(r, math.min(g, b));
-    final delta = maxVal - minVal;
-
-    double h = 0;
-    double s = maxVal == 0 ? 0 : delta / maxVal;
-    double v = maxVal;
-
-    if (delta != 0) {
-      if (maxVal == r) {
-        h = ((g - b) / delta) % 6;
-      } else if (maxVal == g) {
-        h = ((b - r) / delta) + 2;
-      } else {
-        h = ((r - g) / delta) + 4;
+  // ... (Keep _computeGreenRatio, _centerCropSquare, _argMax, etc. as they were)
+  
+  double _computeGreenRatio(img.Image image) {
+    int greenPixels = 0;
+    final totalPixels = image.width * image.height;
+    for (int y = 0; y < image.height; y++) {
+      for (int x = 0; x < image.width; x++) {
+        final p = image.getPixel(x, y);
+        if (p.g > 35 && p.g > p.r * 1.05 && p.g > p.b * 1.05) greenPixels++;
       }
-
-      h /= 6;
-      if (h < 0) h += 1;
     }
+    return totalPixels == 0 ? 0 : greenPixels / totalPixels;
+  }
 
-    return [h, s, v];
+  img.Image _centerCropSquare(img.Image image) {
+    final size = math.min(image.width, image.height);
+    final x = (image.width - size) ~/ 2;
+    final y = (image.height - size) ~/ 2;
+    return img.copyCrop(image, x: x, y: y, width: size, height: size);
   }
 
   int _argMax(List<double> values) {
     int index = 0;
     double maxVal = values[0];
-
     for (int i = 1; i < values.length; i++) {
       if (values[i] > maxVal) {
         maxVal = values[i];
         index = i;
       }
     }
-
     return index;
   }
 
-  void close() {
-    _interpreter.close();
+  String _getFailureReason(bool green, bool confident) {
+    if (!green) return "No plant detected. Please center the leaf.";
+    if (!confident) return "Low confidence. Try better lighting.";
+    return "Plant not recognized.";
   }
+
+  PlantPrediction _invalidPrediction(String message) {
+    return PlantPrediction(
+      accepted: false,
+      label: message,
+      confidence: 0,
+      secondBest: 0,
+      greenRatio: 0,
+      previewBytes: Uint8List(0),
+    );
+  }
+
+  void close() => _interpreter.close();
 }

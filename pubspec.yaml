@@ -23,8 +23,8 @@ flutter:
   uses-material-design: true
 
   assets:
-    - assets/models/mf_m2.tflite # everything can be changed sa frontend, and this part is an pag mention hin model file
-    - assets/models/mf_labels.json
+    - assets/models/model_unquant.tflite # everything can be changed sa frontend, and this part is an pag mention hin model file
+    - assets/models/labels.txt
     - assets/images/logo.png
     - assets/images/bg_pattern.jpg
 

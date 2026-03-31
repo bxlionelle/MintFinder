@@ -14,6 +14,15 @@ class ResultPage extends StatelessWidget {
     required this.previewBytes,
   });
 
+  // Helper to clean the label into a key for plantInfo lookup
+  String _normalizeLabel(String rawLabel) {
+    return rawLabel
+        .toLowerCase()
+        .replaceFirst(RegExp(r'^\d+\s+'), '') // Removes "0 ", "1 ", etc.
+        .replaceAll(' ', '_')                 // "lemon basil" -> "lemon_basil"
+        .trim();
+  }
+
   Color _confidenceColor(double confidence) {
     if (confidence >= 0.85) return Colors.greenAccent;
     if (confidence >= 0.65) return Colors.yellowAccent;
@@ -22,7 +31,12 @@ class ResultPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final data = plantInfo[label];
+    // 1. Convert the model's raw label into our database key
+    final String cleanKey = _normalizeLabel(label);
+
+    // 2. Fetch data from plant_info.dart
+    final data = plantInfo[cleanKey];
+    
     final screenWidth = MediaQuery.of(context).size.width;
     final confColor = _confidenceColor(confidence);
     final confPercent = confidence * 100;
@@ -39,18 +53,12 @@ class ResultPage extends StatelessWidget {
         ),
       ),
       body: data == null
-          ? const Center(
-              child: Text(
-                "No plant information found",
-                style: TextStyle(color: Colors.white70),
-              ),
-            )
+          ? _buildErrorState(cleanKey) // Pass the key to help with debugging
           : SingleChildScrollView(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-
-                  // ── Hero image (full width, tall) ─────────────────────
+                  // ── Hero image (The 224x224 crop the model saw) ──────────
                   Stack(
                     children: [
                       ClipRRect(
@@ -65,8 +73,7 @@ class ResultPage extends StatelessWidget {
                           fit: BoxFit.cover,
                         ),
                       ),
-
-                      // Gradient overlay at bottom of image
+                      // Gradient overlay
                       Positioned(
                         bottom: 0,
                         left: 0,
@@ -89,16 +96,12 @@ class ResultPage extends StatelessWidget {
                           ),
                         ),
                       ),
-
-                      // Confidence badge on top-right of image
+                      // Confidence badge
                       Positioned(
                         top: 14,
                         right: 16,
                         child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 6,
-                          ),
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                           decoration: BoxDecoration(
                             color: Colors.black.withOpacity(0.55),
                             borderRadius: BorderRadius.circular(20),
@@ -125,7 +128,7 @@ class ResultPage extends StatelessWidget {
 
                   const SizedBox(height: 24),
 
-                  // ── Plant name card ───────────────────────────────────
+                  // ── Plant Name Card ─────────────────────────────────────
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 20),
                     child: Container(
@@ -133,9 +136,7 @@ class ResultPage extends StatelessWidget {
                       decoration: BoxDecoration(
                         color: Colors.white.withOpacity(0.08),
                         borderRadius: BorderRadius.circular(20),
-                        border: Border.all(
-                          color: Colors.white.withOpacity(0.15),
-                        ),
+                        border: Border.all(color: Colors.white.withOpacity(0.15)),
                       ),
                       child: Column(
                         children: [
@@ -146,7 +147,6 @@ class ResultPage extends StatelessWidget {
                               color: Colors.white,
                               fontSize: 26,
                               fontWeight: FontWeight.bold,
-                              letterSpacing: 0.5,
                             ),
                           ),
                           const SizedBox(height: 4),
@@ -159,30 +159,16 @@ class ResultPage extends StatelessWidget {
                               fontStyle: FontStyle.italic,
                             ),
                           ),
-
                           const SizedBox(height: 16),
                           Divider(color: Colors.white.withOpacity(0.15)),
                           const SizedBox(height: 16),
-
-                          // Confidence bar
+                          // Progress Bar
                           Row(
                             children: [
-                              const Text(
-                                "Confidence",
-                                style: TextStyle(
-                                  color: Colors.white70,
-                                  fontSize: 13,
-                                ),
-                              ),
+                              const Text("Confidence Score", style: TextStyle(color: Colors.white70, fontSize: 13)),
                               const Spacer(),
-                              Text(
-                                "${confPercent.toStringAsFixed(2)}%",
-                                style: TextStyle(
-                                  color: confColor,
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 13,
-                                ),
-                              ),
+                              Text("${confPercent.toStringAsFixed(2)}%", 
+                                style: TextStyle(color: confColor, fontWeight: FontWeight.bold, fontSize: 13)),
                             ],
                           ),
                           const SizedBox(height: 8),
@@ -192,8 +178,7 @@ class ResultPage extends StatelessWidget {
                               value: confidence,
                               minHeight: 8,
                               backgroundColor: Colors.white.withOpacity(0.15),
-                              valueColor:
-                                  AlwaysStoppedAnimation<Color>(confColor),
+                              valueColor: AlwaysStoppedAnimation<Color>(confColor),
                             ),
                           ),
                         ],
@@ -203,115 +188,34 @@ class ResultPage extends StatelessWidget {
 
                   const SizedBox(height: 16),
 
-                  // ── Description card ──────────────────────────────────
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 20),
-                    child: Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(20),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.08),
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(
-                          color: Colors.white.withOpacity(0.15),
-                        ),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: const [
-                              Icon(Icons.info_outline,
-                                  color: Colors.white70, size: 18),
-                              SizedBox(width: 8),
-                              Text(
-                                "About",
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 12),
-                          Text(
-                            data['description'],
-                            style: const TextStyle(
-                              color: Colors.white70,
-                              fontSize: 15,
-                              height: 1.6,
-                            ),
-                          ),
-                        ],
-                      ),
+                  // ── Description ─────────────────────────────────────────
+                  _buildSectionCard(
+                    title: "About",
+                    icon: Icons.info_outline,
+                    content: Text(
+                      data['description'],
+                      style: const TextStyle(color: Colors.white70, fontSize: 15, height: 1.6),
                     ),
                   ),
 
                   const SizedBox(height: 16),
 
-                  // ── Other names card ──────────────────────────────────
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 20),
-                    child: Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(20),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.08),
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(
-                          color: Colors.white.withOpacity(0.15),
+                  // ── Other Names ─────────────────────────────────────────
+                  _buildSectionCard(
+                    title: "Common Names",
+                    icon: Icons.label_outline,
+                    content: Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: (data['otherNames'] as List).map((name) => Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.12),
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(color: Colors.white.withOpacity(0.2)),
                         ),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: const [
-                              Icon(Icons.label_outline,
-                                  color: Colors.white70, size: 18),
-                              SizedBox(width: 8),
-                              Text(
-                                "Other Names",
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 14),
-                          Wrap(
-                            spacing: 8,
-                            runSpacing: 8,
-                            children: (data['otherNames'] as List)
-                                .map(
-                                  (e) => Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 14,
-                                      vertical: 7,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: Colors.white.withOpacity(0.12),
-                                      borderRadius: BorderRadius.circular(20),
-                                      border: Border.all(
-                                        color: Colors.white.withOpacity(0.2),
-                                      ),
-                                    ),
-                                    child: Text(
-                                      e,
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 13,
-                                      ),
-                                    ),
-                                  ),
-                                )
-                                .toList(),
-                          ),
-                        ],
-                      ),
+                        child: Text(name, style: const TextStyle(color: Colors.white, fontSize: 13)),
+                      )).toList(),
                     ),
                   ),
 
@@ -319,6 +223,51 @@ class ResultPage extends StatelessWidget {
                 ],
               ),
             ),
+    );
+  }
+
+  // UI Helper for Sections
+  Widget _buildSectionCard({required String title, required IconData icon, required Widget content}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.08),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: Colors.white.withOpacity(0.15)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(icon, color: Colors.white70, size: 18),
+                const SizedBox(width: 8),
+                Text(title, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+              ],
+            ),
+            const SizedBox(height: 12),
+            content,
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildErrorState(String attemptedKey) {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Icon(Icons.search_off, color: Colors.white30, size: 64),
+          const SizedBox(height: 16),
+          const Text("Plant data not found", style: TextStyle(color: Colors.white, fontSize: 18)),
+          const SizedBox(height: 8),
+          Text("Looked for key: '$attemptedKey'", style: const TextStyle(color: Colors.white38, fontSize: 12)),
+        ],
+      ),
     );
   }
 }
