@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
@@ -14,6 +13,9 @@ class PlantPrediction {
   final double secondBest;
   final double greenRatio;
   final Uint8List previewBytes;
+  final double hue;  
+  final double saturation; 
+  final double value;      
 
   PlantPrediction({
     required this.accepted,
@@ -22,6 +24,9 @@ class PlantPrediction {
     required this.secondBest,
     required this.greenRatio,
     required this.previewBytes,
+    required this.hue,
+    required this.saturation,
+    required this.value,
   });
 }
 
@@ -29,7 +34,6 @@ class PlantClassifierService {
   late Interpreter _interpreter;
   late List<String> _labels;
 
-  // 1. Updated to 224 to match standard Teachable Machine / MobileNet input
   static const int inputSize = 224;
 
   static const double confidenceThreshold = 0.65;
@@ -38,22 +42,15 @@ class PlantClassifierService {
 
   Future<void> loadModel() async {
     try {
-      // Updated asset paths to match your new files
-      _interpreter = await Interpreter.fromAsset('assets/models/model_unquant.tflite');
-      
-      // 2. Updated Label Loading (TM labels are plain text, not JSON)
+      _interpreter = await Interpreter.fromAsset('assets/models/m8.tflite');
       final rawLabels = await rootBundle.loadString('assets/models/labels.txt');
       _labels = rawLabels
           .split('\n')
           .map((s) => s.trim())
           .where((s) => s.isNotEmpty)
-          .map((s) {
-            // Teachable Machine often prefixes labels with index (e.g., "0 Gmelina")
-            // This regex removes the leading number and space if they exist
-            return s.replaceFirst(RegExp(r'^\d+\s+'), '');
-          })
+          .map((s) => s.replaceFirst(RegExp(r'^\d+\s+'), ''))
           .toList();
-          
+
       print("Model and Labels loaded successfully. Classes: ${_labels.length}");
     } catch (e) {
       print("Error loading model: $e");
@@ -78,7 +75,43 @@ class PlantClassifierService {
       interpolation: img.Interpolation.linear,
     );
 
-    // 3. Updated RGB Tensor Conversion (Normalization change)
+    // ── RGB → HSV conversion ──────────────────────────────────────────────
+    double sumR = 0, sumG = 0, sumB = 0;
+    final int totalPixels = resized.width * resized.height;
+
+    for (int y = 0; y < resized.height; y++) {
+      for (int x = 0; x < resized.width; x++) {
+        final p = resized.getPixel(x, y);
+        sumR += p.r;
+        sumG += p.g;
+        sumB += p.b;
+      }
+    }
+
+    final double r = (sumR / totalPixels) / 255.0;
+    final double g = (sumG / totalPixels) / 255.0;
+    final double b = (sumB / totalPixels) / 255.0;
+
+    final double cmax = math.max(r, math.max(g, b));
+    final double cmin = math.min(r, math.min(g, b));
+    final double delta = cmax - cmin;
+
+    double h = 0.0;
+    if (delta != 0) {
+      if (cmax == r) {
+        h = 60.0 * (((g - b) / delta) % 6);
+      } else if (cmax == g) {
+        h = 60.0 * (((b - r) / delta) + 2);
+      } else {
+        h = 60.0 * (((r - g) / delta) + 4);
+      }
+    }
+    if (h < 0) h += 360.0;
+
+    final double s = cmax == 0 ? 0.0 : delta / cmax;
+    final double v = cmax;
+    // ─────────────────────────────────────────────────────────────────────
+
     final input = _imageToRgbTensor(resized);
 
     final output = List.generate(1, (_) => List.filled(_labels.length, 0.0));
@@ -108,17 +141,17 @@ class PlantClassifierService {
       secondBest: secondBest,
       greenRatio: greenRatio,
       previewBytes: Uint8List.fromList(img.encodeJpg(resized, quality: 85)),
+      hue: h,
+      saturation: s,
+      value: v,
     );
   }
 
-  /// Converts the image to a 4D shape [1, 224, 224, 3] 
-  /// Normalized to [-1, 1] for Teachable Machine
   List<List<List<List<double>>>> _imageToRgbTensor(img.Image image) {
     return [
       List.generate(inputSize, (y) {
         return List.generate(inputSize, (x) {
           final p = image.getPixel(x, y);
-          // Teachable Machine / MobileNet normalization: (x - 127.5) / 127.5
           return [
             (p.r - 127.5) / 127.5,
             (p.g - 127.5) / 127.5,
@@ -129,8 +162,6 @@ class PlantClassifierService {
     ];
   }
 
-  // ... (Keep _computeGreenRatio, _centerCropSquare, _argMax, etc. as they were)
-  
   double _computeGreenRatio(img.Image image) {
     int greenPixels = 0;
     final totalPixels = image.width * image.height;
@@ -176,6 +207,9 @@ class PlantClassifierService {
       secondBest: 0,
       greenRatio: 0,
       previewBytes: Uint8List(0),
+      hue: 0,
+      saturation: 0,
+      value: 0,
     );
   }
 

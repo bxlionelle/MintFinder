@@ -56,12 +56,15 @@ class MenuPage extends StatelessWidget {
                   MaterialPageRoute(builder: (_) => const AlmanacPage()),
                 ),
               ),
-              menuButton(
-                context,
-                "Developers",
-                () => Navigator.push(
+              Visibility(
+                visible: false,
+                child: menuButton(
                   context,
-                  MaterialPageRoute(builder: (_) => const DevelopersPage()),
+                  "Developers",
+                  () => Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const DevelopersPage()),
+                  ),
                 ),
               ),
             ],

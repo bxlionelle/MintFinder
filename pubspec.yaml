@@ -9,24 +9,25 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  camera: ^0.11.0+2
+  camera: ^0.12.0+1
   image_picker: ^1.1.2
   image: ^4.2.0
-  tflite_flutter: ^0.11.0
+  tflite_flutter: ^0.12.1
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  flutter_launcher_icons: ^0.13.1
+  flutter_launcher_icons: ^0.14.4
 
 flutter:
   uses-material-design: true
 
   assets:
-    - assets/models/model_unquant.tflite # everything can be changed sa frontend, and this part is an pag mention hin model file
+    - assets/models/m8.tflite # everything can be changed sa frontend, and this part is an pag mention hin model file
     - assets/models/labels.txt
     - assets/images/logo.png
     - assets/images/bg_pattern.jpg
+    - assets/plants/ 
 
 flutter_launcher_icons:
   android: true

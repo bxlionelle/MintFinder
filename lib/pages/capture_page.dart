@@ -9,6 +9,7 @@ import 'package:image_picker/image_picker.dart';
 import '../main.dart';
 import '../services/classifier_service.dart';
 import 'result_page.dart';
+import 'help_page.dart'; // ← new import
 
 class CapturePage extends StatefulWidget {
   const CapturePage({super.key});
@@ -109,12 +110,10 @@ class _CapturePageState extends State<CapturePage>
 
       _scanController.stop();
 
-      // ── CLEAN LABEL LOGIC ──────────────────────────────────────────
-      // Converts "0 Lemon Basil" -> "lemon_basil" to match plant_info.dart keys
       final String cleanKey = prediction.label
           .toLowerCase()
-          .replaceFirst(RegExp(r'^\d+\s+'), '') // Remove leading numbers
-          .replaceAll(' ', '_')                 // Replace spaces with underscores
+          .replaceFirst(RegExp(r'^\d+\s+'), '')
+          .replaceAll(' ', '_')
           .trim();
 
       if (!prediction.accepted) {
@@ -122,7 +121,8 @@ class _CapturePageState extends State<CapturePage>
           context: context,
           builder: (_) => AlertDialog(
             backgroundColor: const Color(0xFF2E4F10),
-            title: const Text("Not Recognized", style: TextStyle(color: Colors.white)),
+            title: const Text("Not Recognized",
+                style: TextStyle(color: Colors.white)),
             content: Text(
               "Could not identify the plant clearly. Please try again with a clear leaf image.\n\n"
               "Confidence: ${(prediction.confidence * 100).toStringAsFixed(1)}%\n"
@@ -132,7 +132,8 @@ class _CapturePageState extends State<CapturePage>
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(context),
-                child: const Text("OK", style: TextStyle(color: Colors.lightGreenAccent)),
+                child: const Text("OK",
+                    style: TextStyle(color: Colors.lightGreenAccent)),
               ),
             ],
           ),
@@ -145,12 +146,11 @@ class _CapturePageState extends State<CapturePage>
         return;
       }
 
-      // ── NAVIGATE TO RESULT ────────────────────────────────────────
       await Navigator.push(
         context,
         MaterialPageRoute(
           builder: (_) => ResultPage(
-            label: cleanKey, // Use the cleaned key for the database lookup
+            label: cleanKey,
             confidence: prediction.confidence,
             previewBytes: prediction.previewBytes,
           ),
@@ -176,8 +176,17 @@ class _CapturePageState extends State<CapturePage>
     }
   }
 
+  // ── Navigate to the full Help page ─────────────────────────────────────────
+  void _openHelpPage() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const HelpPage()),
+    );
+  }
+
   Widget _buildSquarePreview() {
-    if (_cameraController == null || !_cameraController!.value.isInitialized) {
+    if (_cameraController == null ||
+        !_cameraController!.value.isInitialized) {
       return const Center(child: CircularProgressIndicator());
     }
     return CameraPreview(_cameraController!);
@@ -244,7 +253,8 @@ class _CapturePageState extends State<CapturePage>
     if (_loading) {
       return const Scaffold(
         backgroundColor: Color(0xFF456F1F),
-        body: Center(child: CircularProgressIndicator(color: Colors.white)),
+        body: Center(
+            child: CircularProgressIndicator(color: Colors.white)),
       );
     }
 
@@ -255,7 +265,8 @@ class _CapturePageState extends State<CapturePage>
         elevation: 0,
         title: const Text(
           "Identify Plant",
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+          style:
+              TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
         ),
         iconTheme: const IconThemeData(color: Colors.white),
       ),
@@ -300,7 +311,8 @@ class _CapturePageState extends State<CapturePage>
   Widget _buildActionButtonBar() {
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 20),
-      padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 30),
+      padding:
+          const EdgeInsets.symmetric(vertical: 20, horizontal: 30),
       decoration: BoxDecoration(
         color: Colors.white.withOpacity(0.1),
         borderRadius: BorderRadius.circular(30),
@@ -314,19 +326,23 @@ class _CapturePageState extends State<CapturePage>
             onTap: _predicting ? null : _pickFromGallery,
           ),
           _captureButton(),
-          _iconActionButton(
-            icon: Icons.info_outline,
-            label: "Help",
-            onTap: () {
-              // Optional help dialog or info
-            },
+          Visibility(
+            visible: false,
+            child: _iconActionButton(
+              icon: Icons.info_outline,
+              label: "Help",
+              onTap: _openHelpPage, // ← navigates to HelpPage
+            ),
           ),
         ],
       ),
     );
   }
 
-  Widget _iconActionButton({required IconData icon, required String label, VoidCallback? onTap}) {
+  Widget _iconActionButton(
+      {required IconData icon,
+      required String label,
+      VoidCallback? onTap}) {
     return InkWell(
       onTap: onTap,
       child: Column(
@@ -334,7 +350,9 @@ class _CapturePageState extends State<CapturePage>
         children: [
           Icon(icon, color: Colors.white, size: 30),
           const SizedBox(height: 4),
-          Text(label, style: const TextStyle(color: Colors.white70, fontSize: 11)),
+          Text(label,
+              style:
+                  const TextStyle(color: Colors.white70, fontSize: 11)),
         ],
       ),
     );
@@ -356,7 +374,8 @@ class _CapturePageState extends State<CapturePage>
             color: Colors.white,
             shape: BoxShape.circle,
           ),
-          child: const Icon(Icons.camera_alt, color: Color(0xFF456F1F), size: 30),
+          child: const Icon(Icons.camera_alt,
+              color: Color(0xFF456F1F), size: 30),
         ),
       ),
     );
