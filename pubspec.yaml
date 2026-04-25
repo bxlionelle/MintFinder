@@ -23,10 +23,11 @@ flutter:
   uses-material-design: true
 
   assets:
-    - assets/models/model_unquant.tflite # everything can be changed sa frontend, and this part is an pag mention hin model file
+    - assets/models/HybridModel.tflite
     - assets/models/labels.txt
     - assets/images/logo.png
     - assets/images/bg_pattern.jpg
+    - assets/plants/ 
 
 flutter_launcher_icons:
   android: true

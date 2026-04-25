@@ -31,12 +31,9 @@ class ResultPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // 1. Convert the model's raw label into our database key
     final String cleanKey = _normalizeLabel(label);
-
-    // 2. Fetch data from plant_info.dart
     final data = plantInfo[cleanKey];
-    
+
     final screenWidth = MediaQuery.of(context).size.width;
     final confColor = _confidenceColor(confidence);
     final confPercent = confidence * 100;
@@ -53,12 +50,12 @@ class ResultPage extends StatelessWidget {
         ),
       ),
       body: data == null
-          ? _buildErrorState(cleanKey) // Pass the key to help with debugging
+          ? _buildErrorState(cleanKey)
           : SingleChildScrollView(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  // ── Hero image (The 224x224 crop the model saw) ──────────
+                  // ── Hero image ────────────────────────────────────────
                   Stack(
                     children: [
                       ClipRRect(
@@ -128,7 +125,7 @@ class ResultPage extends StatelessWidget {
 
                   const SizedBox(height: 24),
 
-                  // ── Plant Name Card ─────────────────────────────────────
+                  // ── Plant Name Card ───────────────────────────────────
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 20),
                     child: Container(
@@ -162,13 +159,21 @@ class ResultPage extends StatelessWidget {
                           const SizedBox(height: 16),
                           Divider(color: Colors.white.withOpacity(0.15)),
                           const SizedBox(height: 16),
-                          // Progress Bar
                           Row(
                             children: [
-                              const Text("Confidence Score", style: TextStyle(color: Colors.white70, fontSize: 13)),
+                              const Text(
+                                "Confidence Score",
+                                style: TextStyle(color: Colors.white70, fontSize: 13),
+                              ),
                               const Spacer(),
-                              Text("${confPercent.toStringAsFixed(2)}%", 
-                                style: TextStyle(color: confColor, fontWeight: FontWeight.bold, fontSize: 13)),
+                              Text(
+                                "${confPercent.toStringAsFixed(2)}%",
+                                style: TextStyle(
+                                  color: confColor,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 13,
+                                ),
+                              ),
                             ],
                           ),
                           const SizedBox(height: 8),
@@ -188,7 +193,7 @@ class ResultPage extends StatelessWidget {
 
                   const SizedBox(height: 16),
 
-                  // ── Description ─────────────────────────────────────────
+                  // ── About ─────────────────────────────────────────────
                   _buildSectionCard(
                     title: "About",
                     icon: Icons.info_outline,
@@ -200,22 +205,57 @@ class ResultPage extends StatelessWidget {
 
                   const SizedBox(height: 16),
 
-                  // ── Other Names ─────────────────────────────────────────
+                  // ── Uses / Remedies ───────────────────────────────────
+                  if (data['uses'] != null)
+                    _buildSectionCard(
+                      title: "Uses / Remedies",
+                      icon: Icons.healing_outlined,
+                      content: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: (data['uses'] as List).map((use) => _BulletRow(text: use)).toList(),
+                      ),
+                    ),
+
+                  const SizedBox(height: 16),
+
+                  // ── Safety Measures ───────────────────────────────────
+                  if (data['safetyMeasures'] != null)
+                    _buildSectionCard(
+                      title: "⚠ Safety Measures",
+                      icon: Icons.warning_amber_rounded,
+                      iconColor: Colors.orangeAccent,
+                      titleColor: Colors.orangeAccent,
+                      content: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: (data['safetyMeasures'] as List)
+                            .map((s) => _BulletRow(text: s, bulletColor: Colors.orangeAccent))
+                            .toList(),
+                      ),
+                    ),
+
+                  const SizedBox(height: 16),
+
+                  // ── Common Names ──────────────────────────────────────
                   _buildSectionCard(
                     title: "Common Names",
                     icon: Icons.label_outline,
                     content: Wrap(
                       spacing: 8,
                       runSpacing: 8,
-                      children: (data['otherNames'] as List).map((name) => Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.12),
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(color: Colors.white.withOpacity(0.2)),
-                        ),
-                        child: Text(name, style: const TextStyle(color: Colors.white, fontSize: 13)),
-                      )).toList(),
+                      children: (data['otherNames'] as List)
+                          .map((name) => Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withOpacity(0.12),
+                                  borderRadius: BorderRadius.circular(20),
+                                  border: Border.all(color: Colors.white.withOpacity(0.2)),
+                                ),
+                                child: Text(
+                                  name,
+                                  style: const TextStyle(color: Colors.white, fontSize: 13),
+                                ),
+                              ))
+                          .toList(),
                     ),
                   ),
 
@@ -226,8 +266,13 @@ class ResultPage extends StatelessWidget {
     );
   }
 
-  // UI Helper for Sections
-  Widget _buildSectionCard({required String title, required IconData icon, required Widget content}) {
+  Widget _buildSectionCard({
+    required String title,
+    required IconData icon,
+    required Widget content,
+    Color iconColor = Colors.white70,
+    Color titleColor = Colors.white,
+  }) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20),
       child: Container(
@@ -243,9 +288,16 @@ class ResultPage extends StatelessWidget {
           children: [
             Row(
               children: [
-                Icon(icon, color: Colors.white70, size: 18),
+                Icon(icon, color: iconColor, size: 18),
                 const SizedBox(width: 8),
-                Text(title, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                Text(
+                  title,
+                  style: TextStyle(
+                    color: titleColor,
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
               ],
             ),
             const SizedBox(height: 12),
@@ -263,9 +315,45 @@ class ResultPage extends StatelessWidget {
         children: [
           const Icon(Icons.search_off, color: Colors.white30, size: 64),
           const SizedBox(height: 16),
-          const Text("Plant data not found", style: TextStyle(color: Colors.white, fontSize: 18)),
+          const Text(
+            "Plant data not found",
+            style: TextStyle(color: Colors.white, fontSize: 18),
+          ),
           const SizedBox(height: 8),
-          Text("Looked for key: '$attemptedKey'", style: const TextStyle(color: Colors.white38, fontSize: 12)),
+          Text(
+            "Looked for key: '$attemptedKey'",
+            style: const TextStyle(color: Colors.white38, fontSize: 12),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Reusable bullet row ───────────────────────────────────────────────────────
+class _BulletRow extends StatelessWidget {
+  final String text;
+  final Color bulletColor;
+
+  const _BulletRow({required this.text, this.bulletColor = Colors.white70});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(top: 6, right: 8),
+            child: CircleAvatar(radius: 3, backgroundColor: bulletColor),
+          ),
+          Expanded(
+            child: Text(
+              text,
+              style: const TextStyle(color: Colors.white70, fontSize: 14, height: 1.55),
+            ),
+          ),
         ],
       ),
     );

@@ -9,6 +9,7 @@ import 'package:image_picker/image_picker.dart';
 import '../main.dart';
 import '../services/classifier_service.dart';
 import 'result_page.dart';
+import 'help_page.dart';
 
 class CapturePage extends StatefulWidget {
   const CapturePage({super.key});
@@ -24,6 +25,7 @@ class _CapturePageState extends State<CapturePage>
   final PlantClassifierService _classifier = PlantClassifierService();
 
   bool _loading = true;
+  bool _modelReady = false; // ← NEW: tracks if model finished loading
   bool _predicting = false;
   Uint8List? _previewBytes;
 
@@ -40,6 +42,7 @@ class _CapturePageState extends State<CapturePage>
   }
 
   Future<void> _initAll() async {
+    // Initialize camera and model in parallel for faster startup.
     _cameraController = CameraController(
       cameras.first,
       ResolutionPreset.medium,
@@ -47,16 +50,26 @@ class _CapturePageState extends State<CapturePage>
       imageFormatGroup: ImageFormatGroup.jpeg,
     );
 
-    await _cameraController!.initialize();
-    await _classifier.loadModel();
+    await Future.wait([
+      _cameraController!.initialize(),
+      _classifier.loadModel(),
+    ]);
 
     if (!mounted) return;
+
     setState(() {
       _loading = false;
+      _modelReady = true; // ← both camera and model are ready
+      print("Camera and model ready");
     });
   }
 
+  // ── Camera capture ────────────────────────────────────────────────
   Future<void> _captureFromCamera() async {
+    if (!_modelReady) {
+      _showNotReadySnackbar();
+      return;
+    }
     if (_cameraController == null || !_cameraController!.value.isInitialized) {
       return;
     }
@@ -75,7 +88,13 @@ class _CapturePageState extends State<CapturePage>
     await _processImage(file, deleteAfter: true);
   }
 
+  // ── Gallery pick ──────────────────────────────────────────────────
   Future<void> _pickFromGallery() async {
+    if (!_modelReady) {
+      _showNotReadySnackbar();
+      return;
+    }
+
     final picked = await _picker.pickImage(
       source: ImageSource.gallery,
       imageQuality: 80,
@@ -96,6 +115,7 @@ class _CapturePageState extends State<CapturePage>
     await _processImage(File(picked.path), deleteAfter: false);
   }
 
+  // ── Core image processing ─────────────────────────────────────────
   Future<void> _processImage(File file, {required bool deleteAfter}) async {
     try {
       final prediction = await _classifier.predict(file);
@@ -109,12 +129,10 @@ class _CapturePageState extends State<CapturePage>
 
       _scanController.stop();
 
-      // ── CLEAN LABEL LOGIC ──────────────────────────────────────────
-      // Converts "0 Lemon Basil" -> "lemon_basil" to match plant_info.dart keys
       final String cleanKey = prediction.label
           .toLowerCase()
-          .replaceFirst(RegExp(r'^\d+\s+'), '') // Remove leading numbers
-          .replaceAll(' ', '_')                 // Replace spaces with underscores
+          .replaceFirst(RegExp(r'^\d+\s+'), '')
+          .replaceAll(' ', '_')
           .trim();
 
       if (!prediction.accepted) {
@@ -122,7 +140,10 @@ class _CapturePageState extends State<CapturePage>
           context: context,
           builder: (_) => AlertDialog(
             backgroundColor: const Color(0xFF2E4F10),
-            title: const Text("Not Recognized", style: TextStyle(color: Colors.white)),
+            title: const Text(
+              "Not Recognized",
+              style: TextStyle(color: Colors.white),
+            ),
             content: Text(
               "Could not identify the plant clearly. Please try again with a clear leaf image.\n\n"
               "Confidence: ${(prediction.confidence * 100).toStringAsFixed(1)}%\n"
@@ -132,25 +153,25 @@ class _CapturePageState extends State<CapturePage>
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(context),
-                child: const Text("OK", style: TextStyle(color: Colors.lightGreenAccent)),
+                child: const Text(
+                  "OK",
+                  style: TextStyle(color: Colors.lightGreenAccent),
+                ),
               ),
             ],
           ),
         );
 
         if (!mounted) return;
-        setState(() {
-          _previewBytes = null;
-        });
+        setState(() => _previewBytes = null);
         return;
       }
 
-      // ── NAVIGATE TO RESULT ────────────────────────────────────────
       await Navigator.push(
         context,
         MaterialPageRoute(
           builder: (_) => ResultPage(
-            label: cleanKey, // Use the cleaned key for the database lookup
+            label: cleanKey,
             confidence: prediction.confidence,
             previewBytes: prediction.previewBytes,
           ),
@@ -158,9 +179,7 @@ class _CapturePageState extends State<CapturePage>
       );
 
       if (!mounted) return;
-      setState(() {
-        _previewBytes = null;
-      });
+      setState(() => _previewBytes = null);
     } finally {
       if (deleteAfter) {
         try {
@@ -168,21 +187,41 @@ class _CapturePageState extends State<CapturePage>
         } catch (_) {}
       }
       if (mounted) {
-        setState(() {
-          _predicting = false;
-        });
+        setState(() => _predicting = false);
       }
       _scanController.stop();
     }
   }
 
+  // ── Snackbar shown when buttons are tapped before model is ready ──
+  void _showNotReadySnackbar() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text("Model is still loading, please wait..."),
+        duration: Duration(seconds: 2),
+        backgroundColor: Color(0xFF2E4F10),
+      ),
+    );
+  }
+
+  // ── Navigate to the full Help page ───────────────────────────────
+  void _openHelpPage() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const HelpPage()),
+    );
+  }
+
+  // ── Camera preview ────────────────────────────────────────────────
   Widget _buildSquarePreview() {
-    if (_cameraController == null || !_cameraController!.value.isInitialized) {
+    if (_cameraController == null ||
+        !_cameraController!.value.isInitialized) {
       return const Center(child: CircularProgressIndicator());
     }
     return CameraPreview(_cameraController!);
   }
 
+  // ── Scanning animation overlay ────────────────────────────────────
   Widget _buildScannerOverlay() {
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -244,7 +283,19 @@ class _CapturePageState extends State<CapturePage>
     if (_loading) {
       return const Scaffold(
         backgroundColor: Color(0xFF456F1F),
-        body: Center(child: CircularProgressIndicator(color: Colors.white)),
+        body: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircularProgressIndicator(color: Colors.white),
+              SizedBox(height: 16),
+              Text(
+                "Loading model...",
+                style: TextStyle(color: Colors.white70, fontSize: 14),
+              ),
+            ],
+          ),
+        ),
       );
     }
 
@@ -273,7 +324,7 @@ class _CapturePageState extends State<CapturePage>
                   child: Stack(
                     fit: StackFit.expand,
                     children: [
-                      if (_previewBytes != null)
+                      if (_previewBytes != null && _previewBytes!.isNotEmpty)
                         Image.memory(_previewBytes!, fit: BoxFit.cover)
                       else
                         _buildSquarePreview(),
@@ -298,6 +349,9 @@ class _CapturePageState extends State<CapturePage>
   }
 
   Widget _buildActionButtonBar() {
+    // Buttons are visually dimmed while predicting OR model not ready.
+    final bool buttonsEnabled = !_predicting && _modelReady;
+
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 20),
       padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 30),
@@ -311,52 +365,68 @@ class _CapturePageState extends State<CapturePage>
           _iconActionButton(
             icon: Icons.image_search_outlined,
             label: "Gallery",
-            onTap: _predicting ? null : _pickFromGallery,
+            onTap: buttonsEnabled ? _pickFromGallery : null,
           ),
-          _captureButton(),
+          _captureButton(enabled: buttonsEnabled),
           _iconActionButton(
             icon: Icons.info_outline,
             label: "Help",
-            onTap: () {
-              // Optional help dialog or info
-            },
+            onTap: _openHelpPage, // help is always accessible
           ),
         ],
       ),
     );
   }
 
-  Widget _iconActionButton({required IconData icon, required String label, VoidCallback? onTap}) {
+  Widget _iconActionButton({
+    required IconData icon,
+    required String label,
+    VoidCallback? onTap,
+  }) {
+    final bool enabled = onTap != null;
     return InkWell(
       onTap: onTap,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, color: Colors.white, size: 30),
-          const SizedBox(height: 4),
-          Text(label, style: const TextStyle(color: Colors.white70, fontSize: 11)),
-        ],
+      child: Opacity(
+        opacity: enabled ? 1.0 : 0.4, // dim when disabled
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, color: Colors.white, size: 30),
+            const SizedBox(height: 4),
+            Text(
+              label,
+              style: const TextStyle(color: Colors.white70, fontSize: 11),
+            ),
+          ],
+        ),
       ),
     );
   }
 
-  Widget _captureButton() {
+  Widget _captureButton({bool enabled = true}) {
     return GestureDetector(
-      onTap: _predicting ? null : _captureFromCamera,
-      child: Container(
-        padding: const EdgeInsets.all(4),
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          border: Border.all(color: Colors.white, width: 3),
-        ),
+      onTap: enabled ? _captureFromCamera : null,
+      child: Opacity(
+        opacity: enabled ? 1.0 : 0.4, // dim when disabled
         child: Container(
-          width: 60,
-          height: 60,
-          decoration: const BoxDecoration(
-            color: Colors.white,
+          padding: const EdgeInsets.all(4),
+          decoration: BoxDecoration(
             shape: BoxShape.circle,
+            border: Border.all(color: Colors.white, width: 3),
           ),
-          child: const Icon(Icons.camera_alt, color: Color(0xFF456F1F), size: 30),
+          child: Container(
+            width: 60,
+            height: 60,
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              Icons.camera_alt,
+              color: Color(0xFF456F1F),
+              size: 30,
+            ),
+          ),
         ),
       ),
     );
