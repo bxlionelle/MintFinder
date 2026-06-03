@@ -1,8 +1,10 @@
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart'; // ADD
 import '../data/plant_info.dart';
 
-class ResultPage extends StatelessWidget {
+class ResultPage extends StatefulWidget {
+  // CHANGED
   final String label;
   final double confidence;
   final Uint8List previewBytes;
@@ -14,12 +16,36 @@ class ResultPage extends StatelessWidget {
     required this.previewBytes,
   });
 
-  // Helper to clean the label into a key for plantInfo lookup
+  @override
+  State<ResultPage> createState() => _ResultPageState(); // ADD
+}
+
+class _ResultPageState extends State<ResultPage> {
+  // ADD
+
+  @override
+  void initState() {
+    super.initState();
+    _saveScanToFirebase(); // ADD
+  }
+
+  Future<void> _saveScanToFirebase() async {
+    // ADD
+    await FirebaseFirestore.instance.collection('scan_history').add({
+      'label': widget.label,
+      'confidence': widget.confidence,
+      'timestamp': FieldValue.serverTimestamp(),
+    });
+  }
+
+  // ── Everything below is EXACTLY the same, just replace 'label' with 'widget.label'
+  //    and 'confidence' with 'widget.confidence' and 'previewBytes' with 'widget.previewBytes'
+
   String _normalizeLabel(String rawLabel) {
     return rawLabel
         .toLowerCase()
-        .replaceFirst(RegExp(r'^\d+\s+'), '') // Removes "0 ", "1 ", etc.
-        .replaceAll(' ', '_')                 // "lemon basil" -> "lemon_basil"
+        .replaceFirst(RegExp(r'^\d+\s+'), '')
+        .replaceAll(' ', '_')
         .trim();
   }
 
@@ -31,12 +57,12 @@ class ResultPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final String cleanKey = _normalizeLabel(label);
+    final String cleanKey = _normalizeLabel(widget.label); // widget.
     final data = plantInfo[cleanKey];
 
     final screenWidth = MediaQuery.of(context).size.width;
-    final confColor = _confidenceColor(confidence);
-    final confPercent = confidence * 100;
+    final confColor = _confidenceColor(widget.confidence); // widget.
+    final confPercent = widget.confidence * 100; // widget.
 
     return Scaffold(
       backgroundColor: const Color(0xFF2E4F10),
@@ -55,7 +81,6 @@ class ResultPage extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  // ── Hero image ────────────────────────────────────────
                   Stack(
                     children: [
                       ClipRRect(
@@ -64,13 +89,12 @@ class ResultPage extends StatelessWidget {
                           bottomRight: Radius.circular(32),
                         ),
                         child: Image.memory(
-                          previewBytes,
+                          widget.previewBytes, // widget.
                           width: screenWidth,
                           height: 300,
                           fit: BoxFit.cover,
                         ),
                       ),
-                      // Gradient overlay
                       Positioned(
                         bottom: 0,
                         left: 0,
@@ -93,12 +117,14 @@ class ResultPage extends StatelessWidget {
                           ),
                         ),
                       ),
-                      // Confidence badge
                       Positioned(
                         top: 14,
                         right: 16,
                         child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 6,
+                          ),
                           decoration: BoxDecoration(
                             color: Colors.black.withOpacity(0.55),
                             borderRadius: BorderRadius.circular(20),
@@ -125,7 +151,6 @@ class ResultPage extends StatelessWidget {
 
                   const SizedBox(height: 24),
 
-                  // ── Plant Name Card ───────────────────────────────────
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 20),
                     child: Container(
@@ -133,7 +158,9 @@ class ResultPage extends StatelessWidget {
                       decoration: BoxDecoration(
                         color: Colors.white.withOpacity(0.08),
                         borderRadius: BorderRadius.circular(20),
-                        border: Border.all(color: Colors.white.withOpacity(0.15)),
+                        border: Border.all(
+                          color: Colors.white.withOpacity(0.15),
+                        ),
                       ),
                       child: Column(
                         children: [
@@ -163,7 +190,10 @@ class ResultPage extends StatelessWidget {
                             children: [
                               const Text(
                                 "Confidence Score",
-                                style: TextStyle(color: Colors.white70, fontSize: 13),
+                                style: TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 13,
+                                ),
                               ),
                               const Spacer(),
                               Text(
@@ -180,10 +210,12 @@ class ResultPage extends StatelessWidget {
                           ClipRRect(
                             borderRadius: BorderRadius.circular(8),
                             child: LinearProgressIndicator(
-                              value: confidence,
+                              value: widget.confidence, // widget.
                               minHeight: 8,
                               backgroundColor: Colors.white.withOpacity(0.15),
-                              valueColor: AlwaysStoppedAnimation<Color>(confColor),
+                              valueColor: AlwaysStoppedAnimation<Color>(
+                                confColor,
+                              ),
                             ),
                           ),
                         ],
@@ -193,33 +225,36 @@ class ResultPage extends StatelessWidget {
 
                   const SizedBox(height: 16),
 
-                  // ── About ─────────────────────────────────────────────
                   if (data['description'] != null)
                     _buildSectionCard(
                       title: "About",
                       icon: Icons.info_outline,
                       content: Text(
                         data['description'],
-                        style: const TextStyle(color: Colors.white70, fontSize: 15, height: 1.6),
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 15,
+                          height: 1.6,
+                        ),
                       ),
                     ),
 
                   const SizedBox(height: 16),
 
-                  // ── Uses / Remedies ───────────────────────────────────
                   if (data['uses'] != null)
                     _buildSectionCard(
                       title: "Uses / Remedies",
                       icon: Icons.healing_outlined,
                       content: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
-                        children: (data['uses'] as List).map((use) => _BulletRow(text: use)).toList(),
+                        children: (data['uses'] as List)
+                            .map((use) => _BulletRow(text: use))
+                            .toList(),
                       ),
                     ),
 
                   const SizedBox(height: 16),
 
-                  // ── Safety Measures ───────────────────────────────────
                   if (data['safetyMeasures'] != null)
                     _buildSectionCard(
                       title: "⚠ Safety Measures",
@@ -229,14 +264,18 @@ class ResultPage extends StatelessWidget {
                       content: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: (data['safetyMeasures'] as List)
-                            .map((s) => _BulletRow(text: s, bulletColor: Colors.orangeAccent))
+                            .map(
+                              (s) => _BulletRow(
+                                text: s,
+                                bulletColor: Colors.orangeAccent,
+                              ),
+                            )
                             .toList(),
                       ),
                     ),
 
                   const SizedBox(height: 16),
 
-                  // ── Common Names ──────────────────────────────────────
                   _buildSectionCard(
                     title: "Common Names",
                     icon: Icons.label_outline,
@@ -244,18 +283,28 @@ class ResultPage extends StatelessWidget {
                       spacing: 8,
                       runSpacing: 8,
                       children: (data['otherNames'] as List)
-                          .map((name) => Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
-                                decoration: BoxDecoration(
-                                  color: Colors.white.withOpacity(0.12),
-                                  borderRadius: BorderRadius.circular(20),
-                                  border: Border.all(color: Colors.white.withOpacity(0.2)),
+                          .map(
+                            (name) => Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 14,
+                                vertical: 7,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withOpacity(0.12),
+                                borderRadius: BorderRadius.circular(20),
+                                border: Border.all(
+                                  color: Colors.white.withOpacity(0.2),
                                 ),
-                                child: Text(
-                                  name,
-                                  style: const TextStyle(color: Colors.white, fontSize: 13),
+                              ),
+                              child: Text(
+                                name,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 13,
                                 ),
-                              ))
+                              ),
+                            ),
+                          )
                           .toList(),
                     ),
                   ),
@@ -331,7 +380,6 @@ class ResultPage extends StatelessWidget {
   }
 }
 
-// ── Reusable bullet row ───────────────────────────────────────────────────────
 class _BulletRow extends StatelessWidget {
   final String text;
   final Color bulletColor;
@@ -352,7 +400,11 @@ class _BulletRow extends StatelessWidget {
           Expanded(
             child: Text(
               text,
-              style: const TextStyle(color: Colors.white70, fontSize: 14, height: 1.55),
+              style: const TextStyle(
+                color: Colors.white70,
+                fontSize: 14,
+                height: 1.55,
+              ),
             ),
           ),
         ],

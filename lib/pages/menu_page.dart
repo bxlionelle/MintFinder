@@ -2,15 +2,12 @@ import 'package:flutter/material.dart';
 import 'capture_page.dart';
 import 'almanac_page.dart';
 import 'developers_page.dart';
+import 'history_page.dart'; // ADDED
 
 class MenuPage extends StatelessWidget {
   const MenuPage({super.key});
 
-  Widget menuButton(
-    BuildContext context,
-    String title,
-    VoidCallback onTap,
-  ) {
+  Widget menuButton(BuildContext context, String title, VoidCallback onTap) {
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 14),
       child: ElevatedButton(
@@ -36,7 +33,8 @@ class MenuPage extends StatelessWidget {
     return Scaffold(
       backgroundColor: const Color(0xFF456F1F),
       body: SafeArea(
-        child: Center(                              // 👈 added
+        child: Center(
+          // 👈 added
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center, // 👈 added
             children: [
@@ -48,6 +46,14 @@ class MenuPage extends StatelessWidget {
                   MaterialPageRoute(builder: (_) => const CapturePage()),
                 ),
               ),
+              menuButton(
+                context,
+                "History",
+                () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const HistoryPage()),
+                ),
+              ), // ADD
               menuButton(
                 context,
                 "Almanac",

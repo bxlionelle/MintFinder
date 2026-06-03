@@ -6,11 +6,11 @@ import '../data/plant_info.dart' show plantInfo;
 // No separate map needed here.
 
 // ─── Color palette (matches existing app) ────────────────────────────────────
-const _bgDark    = Color(0xFF2D4A10);
-const _bgMid     = Color(0xFF3A5C18);
-const _cardBg    = Color(0xFFF4F0E8);   // warm off-white card
-const _accent    = Color(0xFF5A8A1F);
-const _textDark  = Color(0xFF1E3205);
+const _bgDark = Color(0xFF2D4A10);
+const _bgMid = Color(0xFF3A5C18);
+const _cardBg = Color(0xFFF4F0E8); // warm off-white card
+const _accent = Color(0xFF5A8A1F);
+const _textDark = Color(0xFF1E3205);
 const _textMuted = Color(0xFF607040);
 
 // ─── AlmanacPage ─────────────────────────────────────────────────────────────
@@ -19,7 +19,9 @@ class AlmanacPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final entries = plantInfo.entries.toList();
+    final entries = plantInfo.entries
+        .where((e) => e.key != 'agmelina' && e.key != '9mayana')
+        .toList();
 
     return Scaffold(
       backgroundColor: _bgDark,
@@ -39,16 +41,8 @@ class AlmanacPage extends StatelessWidget {
       body: Stack(
         children: [
           // Organic blob shape at the bottom (matches app style)
-          Positioned(
-            bottom: -60,
-            left: -40,
-            child: _GreenBlob(size: 220),
-          ),
-          Positioned(
-            bottom: -30,
-            right: -50,
-            child: _GreenBlob(size: 160),
-          ),
+          Positioned(bottom: -60, left: -40, child: _GreenBlob(size: 220)),
+          Positioned(bottom: -30, right: -50, child: _GreenBlob(size: 160)),
 
           GridView.builder(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
@@ -60,7 +54,7 @@ class AlmanacPage extends StatelessWidget {
             ),
             itemCount: entries.length,
             itemBuilder: (context, index) {
-              final key  = entries[index].key;
+              final key = entries[index].key;
               final data = entries[index].value;
               return _PlantCard(
                 plantKey: key,
@@ -74,7 +68,11 @@ class AlmanacPage extends StatelessWidget {
     );
   }
 
-  void _openDetail(BuildContext context, String key, Map<String, dynamic> data) {
+  void _openDetail(
+    BuildContext context,
+    String key,
+    Map<String, dynamic> data,
+  ) {
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => _AlmanacDetailPage(plantKey: key, data: data),
@@ -120,14 +118,17 @@ class _PlantCard extends StatelessWidget {
             // Image area
             Expanded(
               child: ClipRRect(
-                borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(20),
+                ),
                 child: Container(
                   color: const Color(0xFFC8D9A0),
                   child: imagePath != null
                       ? Image.asset(
                           imagePath,
                           fit: BoxFit.contain,
-                          errorBuilder: (_, __, ___) => const _PlantPlaceholder(),
+                          errorBuilder: (_, __, ___) =>
+                              const _PlantPlaceholder(),
                         )
                       : const _PlantPlaceholder(),
                 ),
@@ -211,9 +212,9 @@ class _AlmanacDetailPageState extends State<_AlmanacDetailPage> {
   @override
   Widget build(BuildContext context) {
     final data = widget.data;
-    final List uses           = data['uses']          as List? ?? [];
+    final List uses = data['uses'] as List? ?? [];
     final List safetyMeasures = data['safetyMeasures'] as List? ?? [];
-    final List otherNames     = data['otherNames']    as List? ?? [];
+    final List otherNames = data['otherNames'] as List? ?? [];
 
     return Scaffold(
       backgroundColor: _bgDark,
@@ -223,14 +224,17 @@ class _AlmanacDetailPageState extends State<_AlmanacDetailPage> {
         iconTheme: const IconThemeData(color: Colors.white),
         title: Text(
           data['name'],
-          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.bold,
+          ),
         ),
       ),
       body: Stack(
         children: [
           // Background blobs
           Positioned(bottom: -40, left: -30, child: _GreenBlob(size: 180)),
-          Positioned(top: 200,   right: -50, child: _GreenBlob(size: 140)),
+          Positioned(top: 200, right: -50, child: _GreenBlob(size: 140)),
 
           SingleChildScrollView(
             padding: const EdgeInsets.only(bottom: 40),
@@ -239,7 +243,10 @@ class _AlmanacDetailPageState extends State<_AlmanacDetailPage> {
               children: [
                 // ── Image carousel ─────────────────────────────────────
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 20,
+                    vertical: 12,
+                  ),
                   child: Container(
                     height: 220,
                     decoration: BoxDecoration(
@@ -253,14 +260,17 @@ class _AlmanacDetailPageState extends State<_AlmanacDetailPage> {
                         children: [
                           PageView.builder(
                             controller: _pageController,
-                            onPageChanged: (i) => setState(() => _currentPage = i),
+                            onPageChanged: (i) =>
+                                setState(() => _currentPage = i),
                             itemCount: _images.isEmpty ? 1 : _images.length,
                             itemBuilder: (_, i) {
-                              if (_images.isEmpty) return const _PlantPlaceholder();
+                              if (_images.isEmpty)
+                                return const _PlantPlaceholder();
                               return Image.asset(
                                 _images[i],
                                 fit: BoxFit.contain,
-                                errorBuilder: (_, __, ___) => const _PlantPlaceholder(),
+                                errorBuilder: (_, __, ___) =>
+                                    const _PlantPlaceholder(),
                               );
                             },
                           ),
@@ -268,14 +278,17 @@ class _AlmanacDetailPageState extends State<_AlmanacDetailPage> {
                           if (_images.length > 1) ...[
                             Positioned(
                               left: 6,
-                              top: 0, bottom: 0,
+                              top: 0,
+                              bottom: 0,
                               child: Center(
                                 child: _CarouselArrow(
                                   icon: Icons.arrow_left,
                                   onTap: () {
                                     if (_currentPage > 0) {
                                       _pageController.previousPage(
-                                        duration: const Duration(milliseconds: 300),
+                                        duration: const Duration(
+                                          milliseconds: 300,
+                                        ),
                                         curve: Curves.easeInOut,
                                       );
                                     }
@@ -285,14 +298,17 @@ class _AlmanacDetailPageState extends State<_AlmanacDetailPage> {
                             ),
                             Positioned(
                               right: 6,
-                              top: 0, bottom: 0,
+                              top: 0,
+                              bottom: 0,
                               child: Center(
                                 child: _CarouselArrow(
                                   icon: Icons.arrow_right,
                                   onTap: () {
                                     if (_currentPage < _images.length - 1) {
                                       _pageController.nextPage(
-                                        duration: const Duration(milliseconds: 300),
+                                        duration: const Duration(
+                                          milliseconds: 300,
+                                        ),
                                         curve: Curves.easeInOut,
                                       );
                                     }
@@ -311,16 +327,21 @@ class _AlmanacDetailPageState extends State<_AlmanacDetailPage> {
                 if (_images.length > 1)
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
-                    children: List.generate(_images.length, (i) => AnimatedContainer(
-                      duration: const Duration(milliseconds: 200),
-                      margin: const EdgeInsets.symmetric(horizontal: 4),
-                      width: i == _currentPage ? 20 : 8,
-                      height: 8,
-                      decoration: BoxDecoration(
-                        color: i == _currentPage ? Colors.greenAccent : Colors.white38,
-                        borderRadius: BorderRadius.circular(4),
+                    children: List.generate(
+                      _images.length,
+                      (i) => AnimatedContainer(
+                        duration: const Duration(milliseconds: 200),
+                        margin: const EdgeInsets.symmetric(horizontal: 4),
+                        width: i == _currentPage ? 20 : 8,
+                        height: 8,
+                        decoration: BoxDecoration(
+                          color: i == _currentPage
+                              ? Colors.greenAccent
+                              : Colors.white38,
+                          borderRadius: BorderRadius.circular(4),
+                        ),
                       ),
-                    )),
+                    ),
                   )
                 else
                   // Two static dots as in mockup design (decorative)
@@ -338,7 +359,10 @@ class _AlmanacDetailPageState extends State<_AlmanacDetailPage> {
 
                 // ── Name & scientific ───────────────────────────────────
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 20,
+                    vertical: 10,
+                  ),
                   child: Text(
                     '${data['name']} (${data['scientific']})',
                     textAlign: TextAlign.center,
@@ -384,7 +408,9 @@ class _AlmanacDetailPageState extends State<_AlmanacDetailPage> {
                                 titleColor: _textDark,
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: otherNames.map((n) => _BulletItem(text: n)).toList(),
+                                  children: otherNames
+                                      .map((n) => _BulletItem(text: n))
+                                      .toList(),
                                 ),
                               ),
                               const SizedBox(height: 10),
@@ -393,7 +419,9 @@ class _AlmanacDetailPageState extends State<_AlmanacDetailPage> {
                                 titleColor: _textDark,
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: uses.map((u) => _BulletItem(text: u)).toList(),
+                                  children: uses
+                                      .map((u) => _BulletItem(text: u))
+                                      .toList(),
                                 ),
                               ),
                             ],
@@ -415,7 +443,12 @@ class _AlmanacDetailPageState extends State<_AlmanacDetailPage> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: safetyMeasures
-                          .map((s) => _BulletItem(text: s, bulletColor: const Color(0xFFD4762A)))
+                          .map(
+                            (s) => _BulletItem(
+                              text: s,
+                              bulletColor: const Color(0xFFD4762A),
+                            ),
+                          )
                           .toList(),
                     ),
                   ),
@@ -497,7 +530,11 @@ class _BulletItem extends StatelessWidget {
           Expanded(
             child: Text(
               text,
-              style: const TextStyle(color: _textDark, fontSize: 12, height: 1.5),
+              style: const TextStyle(
+                color: _textDark,
+                fontSize: 12,
+                height: 1.5,
+              ),
             ),
           ),
         ],

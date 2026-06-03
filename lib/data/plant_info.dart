@@ -26,7 +26,7 @@ const Map<String, Map<String, dynamic>> plantInfo = {
     "otherNames": ["Balbas pusa", "Java tea", "Kumis kucing", "Misai kucing"],
   },
 
-  "gmelina": {
+  "agmelina": {
     "name": "White Teak",
     "scientific": "Gmelina arborea",
     "image": "assets/plants/gmelina.JPG", // ← image path
@@ -76,7 +76,7 @@ const Map<String, Map<String, dynamic>> plantInfo = {
     "otherNames": ["Lemon herb", "Kemangi", "Solasi limon", "Thai lemon basil"],
   },
 
-  "mayana": {
+  "9mayana": {
     "name": "Mayana",
     "scientific": "Coleus scutellarioides",
     "image": "assets/plants/mayana.jpg", // ← image path
