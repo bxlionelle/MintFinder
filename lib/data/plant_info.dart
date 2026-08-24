@@ -3,7 +3,7 @@
 const Map<String, Map<String, dynamic>> plantInfo = {
   "cat_whiskers": {
     "name": "Cat's Whiskers",
-    "scientific": "Orthosiphon aristatus",
+    "scientific": "Orthosiphon aristatus    ,",    
     "image": "assets/plants/cats_whiskers.jpg", // ← image path
     "description":
         "A medicinal herb native to Southeast Asia, recognized by its striking long white or purple stamens that resemble a cat's whiskers. Widely used in traditional medicine for its diuretic and anti-inflammatory properties.",
