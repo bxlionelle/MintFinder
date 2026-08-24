@@ -1,7 +1,7 @@
 // lib/data/plant_info.dart
 
 const Map<String, Map<String, dynamic>> plantInfo = {
-  "cats_whiskers": {
+  "cat_whiskers": {
     "name": "Cat's Whiskers",
     "scientific": "Orthosiphon aristatus",
     "image": "assets/plants/cats_whiskers.jpg", // ← image path

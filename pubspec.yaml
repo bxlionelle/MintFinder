@@ -13,6 +13,7 @@ dependencies:
   image_picker: ^1.1.2
   image: ^4.2.0
   tflite_flutter: ^0.12.1
+  opencv_dart: ^1.3.4
   firebase_core: ^3.0.0
   cloud_firestore: ^5.0.0
 
@@ -25,12 +26,13 @@ flutter:
   uses-material-design: true
 
   assets:
-    - assets/models/m8.tflite # everything can be changed sa frontend, and this part is an pag mention hin model file
-    - assets/models/labels.txt
+    - assets/models/model.tflite
+    - assets/models/scaler.json
+    - assets/models/label_map.json
     - assets/images/logo.png
     - assets/images/bg_pattern.jpg
     - assets/images/capture_guide.jpg
-    - assets/plants/ 
+    - assets/plants/
 
 flutter_launcher_icons:
   android: true
