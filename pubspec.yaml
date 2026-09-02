@@ -32,6 +32,7 @@ flutter:
     - assets/images/logo.png
     - assets/images/bg_pattern.jpg
     - assets/images/capture_guide.jpg
+    - assets/models/fusion_thresholds.json
     - assets/plants/
 
 flutter_launcher_icons:

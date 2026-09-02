@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-import 'menu_page.dart';
+import 'skeu_theme.dart';
+import 'reminder_page.dart';
 
 class StartPage extends StatelessWidget {
   const StartPage({super.key});
@@ -8,9 +9,7 @@ class StartPage extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       body: Container(
-        decoration: const BoxDecoration(
-          color: Color(0xFFF2F2F2),
-        ),
+        decoration: const BoxDecoration(color: kPaper),
         child: Column(
           children: [
             Expanded(
@@ -18,43 +17,68 @@ class StartPage extends StatelessWidget {
               child: Container(
                 width: double.infinity,
                 decoration: const BoxDecoration(
-                  color: Color(0xFF456F1F),
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [kGreenLight, kGreenMid, kGreenDark],
+                  ),
                   borderRadius: BorderRadius.only(
                     bottomRight: Radius.circular(90),
                   ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black26,
+                      offset: Offset(0, 6),
+                      blurRadius: 14,
+                    ),
+                  ],
                 ),
-                child: Center(
-                  child: Image.asset(
-                    'assets/images/logo.png',
-                    width: 220,
-                  ),
+                child: Stack(
+                  children: [
+                    const Positioned(
+                      top: 16,
+                      left: 16,
+                      child: SkeuCornerDots(),
+                    ),
+                    Center(
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: Colors.white.withOpacity(0.06),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.25),
+                              blurRadius: 24,
+                              spreadRadius: 6,
+                            ),
+                          ],
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.all(28),
+                          child: Image.asset(
+                            'assets/images/logo.png',
+                            width: 200,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ),
             Expanded(
               flex: 4,
               child: Center(
-                child: ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF456F1F),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 50,
-                      vertical: 18,
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(25),
-                    ),
-                  ),
+                child: SkeuButton(
+                  label: "Start",
+                  colorTop: kGreenLight,
+                  colorBottom: kGreenDark,
                   onPressed: () {
                     Navigator.pushReplacement(
                       context,
-                      MaterialPageRoute(builder: (_) => const MenuPage()),
+                      MaterialPageRoute(builder: (_) => const ReminderPage()),
                     );
                   },
-                  child: const Text(
-                    "Start",
-                    style: TextStyle(fontSize: 28, color: Colors.white),
-                  ),
                 ),
               ),
             ),

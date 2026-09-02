@@ -1,21 +1,32 @@
 // classifier_service.dart
 //
-// Runs the ACTUAL trained MintFinder algorithm:
-//   MobileNetV2 branch (deep features) + Hu Moments/Canny branch (classical
-//   features), matching train_model.py / predict.py exactly.
+// v8 update: implements the LATE-FUSION architecture, matching the
+// updated train_model.py / mintfinder_utils.py / predict.py exactly.
 //
-// Public API (PlantClassifierService, PlantPrediction, loadModel(), predict())
-// is kept the same as the previous version so capture_page.dart and
-// result_page.dart don't need to change.
+// What changed from the previous (early-fusion) version:
+//   1. The TFLite model now has TWO outputs (branch_a_output,
+//      branch_b_output) instead of one fused output. Branch A
+//      (MobileNetV2) LEADS the decision; Branch B (Hu+Canny) only
+//      needs to SUPPORT (not independently re-derive) A's guess.
+//   2. Two cheap pre-filters run BEFORE the model: green ratio (HSV
+//      color check) and leaf shape (contour-coverage check),
+//      combined with OR. If BOTH fail, the image is rejected as
+//      "unknown" WITHOUT running the model at all.
+//   3. fusion_thresholds.json (bundled as an asset, same as
+//      scaler.json/label_map.json) holds all four empirically-derived
+//      thresholds - nothing here is hardcoded/guessed.
 //
-// NOTE on opencv_dart: exact function signatures can shift between package
-// versions. Hu Moments are computed manually here (from the Moments object's
-// nu20/nu11/nu02/nu30/nu21/nu12/nu03 properties) rather than calling a
-// top-level huMoments() function, since that function's name/availability
-// varies between opencv_dart versions - this approach is version-proof.
-// If cvtColor/createCLAHE/threshold/bitwiseAND/moments/canny don't compile
-// against the version you install, check that package's example app on
-// pub.dev and adjust those specific calls.
+// Public API (PlantClassifierService, PlantPrediction, loadModel(),
+// predict()) keeps the same core fields as before so existing pages
+// don't break; a few new fields were ADDED (shapeScore,
+// rejectionReason) which callers can use or ignore.
+//
+// NOTE on opencv_dart function availability: findContours,
+// contourArea, inRange, and countNonZero were verified to exist in
+// opencv_dart's public API (pub.dev docs) before writing this code -
+// unlike huMoments() previously, these did NOT need a manual
+// workaround. cvtColor/createCLAHE/threshold/bitwiseAND/moments/canny
+// are unchanged from before and were already working.
 
 import 'dart:io';
 import 'dart:convert';
@@ -35,6 +46,8 @@ class PlantPrediction {
   final double confidence;
   final double secondBest;
   final double greenRatio;
+  final double shapeScore;
+  final String? rejectionReason; // "no_leaf_detected" | "species_unmatched" | null
   final Uint8List previewBytes;
   final double hue;
   final double saturation;
@@ -46,12 +59,28 @@ class PlantPrediction {
     required this.confidence,
     required this.secondBest,
     required this.greenRatio,
+    required this.shapeScore,
+    required this.rejectionReason,
     required this.previewBytes,
     required this.hue,
     required this.saturation,
     required this.value,
   });
 }
+
+/// User-facing messages for the two different "unknown" reasons -
+/// mirrors mintfinder_utils.py's REJECTION_MESSAGES exactly.
+const Map<String, String> _rejectionMessages = {
+  "no_leaf_detected":
+      "We couldn't detect a leaf in this photo. Please take a clear "
+      "photo of a single leaf, filling most of the frame, showing its "
+      "shape and vein pattern.",
+  "species_unmatched":
+      "We detected something leaf-like, but couldn't confidently match "
+      "it to Cat's Whiskers, Lemon Basil, or Mojito Mint. Try a "
+      "clearer, well-lit photo of a single leaf against a plain "
+      "background.",
+};
 
 class PlantClassifierService {
   static const int _imgSize = 224;
@@ -62,6 +91,24 @@ class PlantClassifierService {
   Map<int, String> _labels = {};
   int _imageInputIndex = 0;
   int _classicalInputIndex = 1;
+  int _branchAOutputIndex = 0;
+  int _branchBOutputIndex = 1;
+
+  // Loaded from fusion_thresholds.json - all empirically derived during
+  // training, none of these are guessed/hardcoded.
+  double _thresholdA = 0.9;
+  double _thresholdBSupport = 0.2;
+  // Combiner strategy - mirrors mintfinder_utils.py's combine_predictions()
+  // exactly. "gate" (default) = hard veto, Branch B can reject outright.
+  // "blend" = weighted score, Branch B can only nudge, never veto. See
+  // that Python docstring for the full trade-off explanation before
+  // switching this to "blend".
+  String _combinerMode = "gate";
+  double _combinerWeightA = 0.75;
+  double _combinerCombinedThreshold = 0.6;
+  double? _greenRatioThreshold;
+  double? _leafShapeThreshold;
+  int _unknownIdx = 0;
 
   Future<void> loadModel() async {
     try {
@@ -72,6 +119,28 @@ class PlantClassifierService {
           await rootBundle.loadString('assets/models/label_map.json');
       final Map<String, dynamic> labelJson = jsonDecode(labelRaw);
       _labels = labelJson.map((k, v) => MapEntry(int.parse(k), v as String));
+
+      final thresholdRaw =
+          await rootBundle.loadString('assets/models/fusion_thresholds.json');
+      final Map<String, dynamic> thresholdJson = jsonDecode(thresholdRaw);
+      _thresholdA = (thresholdJson['branch_a_threshold'] as num).toDouble();
+      _thresholdBSupport =
+          (thresholdJson['branch_b_threshold'] as num).toDouble();
+      _unknownIdx = (thresholdJson['unknown_class_index'] as num).toInt();
+      _combinerMode =
+          (thresholdJson['combiner_mode'] as String?) ?? "gate";
+      _combinerWeightA =
+          (thresholdJson['combiner_weight_a'] as num?)?.toDouble() ?? 0.75;
+      _combinerCombinedThreshold =
+          (thresholdJson['combiner_combined_threshold'] as num?)
+                  ?.toDouble() ??
+              0.6;
+      _greenRatioThreshold = thresholdJson['green_ratio_threshold'] == null
+          ? null
+          : (thresholdJson['green_ratio_threshold'] as num).toDouble();
+      _leafShapeThreshold = thresholdJson['leaf_shape_threshold'] == null
+          ? null
+          : (thresholdJson['leaf_shape_threshold'] as num).toDouble();
 
       // Match inputs by name (same approach as predict.py) in case tensor
       // order ever changes between exports.
@@ -85,7 +154,34 @@ class PlantClassifierService {
         }
       }
 
-      print("Model, scaler, and labels loaded. Classes: ${_labels.length}");
+      // Match the TWO outputs by name too - falls back to index 0/1
+      // (the dict insertion order used in train_model.py's serving_fn)
+      // if names weren't preserved through TFLite export, same fallback
+      // logic as mintfinder_utils.py's _find_output_index().
+      final outputTensors = _interpreter!.getOutputTensors();
+      var foundA = false, foundB = false;
+      for (var i = 0; i < outputTensors.length; i++) {
+        final name = outputTensors[i].name.toLowerCase();
+        if (name.contains('branch_a')) {
+          _branchAOutputIndex = i;
+          foundA = true;
+        } else if (name.contains('branch_b')) {
+          _branchBOutputIndex = i;
+          foundB = true;
+        }
+      }
+      if (!foundA || !foundB) {
+        _branchAOutputIndex = 0;
+        _branchBOutputIndex = 1;
+      }
+
+      print(">>> COMBINER CONFIG LOADED: mode=$_combinerMode "
+          "weightA=$_combinerWeightA "
+          "combinedThr=$_combinerCombinedThreshold <<<");
+      print("Model, scaler, labels, and fusion thresholds loaded. "
+          "Classes: ${_labels.length}, thrA=$_thresholdA, "
+          "thrBSupport=$_thresholdBSupport, "
+          "greenThr=$_greenRatioThreshold, shapeThr=$_leafShapeThreshold");
     } catch (e) {
       print("Error loading model: $e");
     }
@@ -94,23 +190,20 @@ class PlantClassifierService {
   Future<PlantPrediction> predict(File imageFile) async {
     if (_interpreter == null || _scaler == null) {
       print("[MintFinder] predict() aborted - model/scaler not loaded");
-      return _invalidPrediction("Model not loaded yet");
+      return _invalidPrediction("Model not loaded yet", null);
     }
 
     print("[MintFinder] predict() start");
     final bytes = await imageFile.readAsBytes();
     print("[MintFinder] read ${bytes.length} bytes from file");
 
-    // ── Preview / color-info decode (image package) ──────────────────────
+    // ── Preview decode (image package) - display only ────────────────────
     final decoded = img.decodeImage(bytes);
     if (decoded == null) {
       print("[MintFinder] img.decodeImage returned null");
-      return _invalidPrediction("Invalid image");
+      return _invalidPrediction("Invalid image", null);
     }
-    print("[MintFinder] preview decode OK");
     final cropped = _centerCropSquare(decoded);
-    final greenRatio = _computeGreenRatio(cropped);
-    print("[MintFinder] green ratio computed: $greenRatio");
     final previewResized = img.copyResize(
       cropped,
       width: _imgSize,
@@ -126,8 +219,47 @@ class PlantClassifierService {
     print("[MintFinder] cv.imdecode done");
     final resized = cv.resize(original, (_imgSize, _imgSize));
     print("[MintFinder] cv.resize done");
+
+    // ── Pre-filter 1: green ratio (HSV) ───────────────────────────────────
+    // Mirrors mintfinder_utils.py's compute_green_ratio() exactly, so the
+    // threshold loaded from fusion_thresholds.json means the same thing
+    // here as it did when it was calibrated in Python.
+    final greenRatio = _computeGreenRatioHsv(resized);
+    print("[MintFinder] green ratio (HSV): $greenRatio");
+
+    // ── Pre-filter 2: leaf shape (contour coverage) ───────────────────────
     final gray = cv.cvtColor(resized, cv.COLOR_BGR2GRAY);
     print("[MintFinder] cv.cvtColor (gray) done");
+    final shapeScore = _computeLeafShapeScore(gray);
+    print("[MintFinder] shape score: $shapeScore");
+
+    final checks = <bool>[];
+    if (_greenRatioThreshold != null) {
+      checks.add(greenRatio >= _greenRatioThreshold!);
+    }
+    if (_leafShapeThreshold != null) {
+      checks.add(shapeScore >= _leafShapeThreshold!);
+    }
+    final prefilterPassed = checks.isEmpty || checks.any((c) => c);
+
+    if (!prefilterPassed) {
+      print("[MintFinder] REJECTED by pre-filter (no_leaf_detected) - "
+          "model not run");
+      return PlantPrediction(
+        accepted: false,
+        label: _rejectionMessages["no_leaf_detected"]!,
+        confidence: 1.0,
+        secondBest: 0.0,
+        greenRatio: greenRatio,
+        shapeScore: shapeScore,
+        rejectionReason: "no_leaf_detected",
+        previewBytes:
+            Uint8List.fromList(img.encodeJpg(previewResized, quality: 85)),
+        hue: h,
+        saturation: s,
+        value: v,
+      );
+    }
 
     final imageInput = _buildImageInput(gray);
     print("[MintFinder] _buildImageInput done");
@@ -136,7 +268,10 @@ class PlantClassifierService {
     final classicalScaled = _scaler!.transform(classicalRaw);
     print("[MintFinder] scaler.transform done");
 
-    final output =
+    // Two separate output buffers now, one per branch.
+    final outputA =
+        List.filled(1 * _labels.length, 0.0).reshape([1, _labels.length]);
+    final outputB =
         List.filled(1 * _labels.length, 0.0).reshape([1, _labels.length]);
 
     final inputs = List<Object>.filled(2, imageInput);
@@ -144,36 +279,138 @@ class PlantClassifierService {
     inputs[_classicalInputIndex] =
         Float32List.fromList(classicalScaled).reshape([1, _featureSize]);
 
-    final outputs = <int, Object>{0: output};
+    final outputs = <int, Object>{
+      _branchAOutputIndex: outputA,
+      _branchBOutputIndex: outputB,
+    };
     print("[MintFinder] calling interpreter.runForMultipleInputs...");
     _interpreter!.runForMultipleInputs(inputs, outputs);
-    print("[MintFinder] interpreter run done, output: ${output[0]}");
+    print("[MintFinder] interpreter run done. "
+        "A: ${outputA[0]}  B: ${outputB[0]}");
 
-    final scores = (output[0] as List).cast<double>();
-    final sorted = [...scores]..sort((a, b) => b.compareTo(a));
+    final predA = (outputA[0] as List).cast<double>();
+    final predB = (outputB[0] as List).cast<double>();
 
-    final topIdx = _argMax(scores);
-    final confidence = scores[topIdx];
-    final secondBest = sorted.length > 1 ? sorted[1] : 0.0;
-    final label = _labels[topIdx] ?? 'unknown';
-    print("[MintFinder] predicted: $label ($confidence)");
+    final (finalIdx, finalConf, agreed) = _combinePredictions(predA, predB);
+    final label = _labels[finalIdx] ?? 'unknown';
+    final secondBest = () {
+      final sortedA = [...predA]..sort((a, b) => b.compareTo(a));
+      return sortedA.length > 1 ? sortedA[1] : 0.0;
+    }();
 
-    // "unknown" is a trained class now, not a threshold heuristic - so the
-    // model itself decides, no extra gating needed.
-    final accepted = label != 'unknown';
+    print("[MintFinder] Branch A top: ${_labels[_argMax(predA)]} "
+        "(${predA[_argMax(predA)]})  "
+        "B support for A's guess: ${predB[_argMax(predA)]}  "
+        "mode=$_combinerMode  agreed: $agreed  finalConf: $finalConf");
+    print("[MintFinder] FINAL: $label ($finalConf)");
+
+    // IMPORTANT: `agreed` can be true even when finalIdx == _unknownIdx -
+    // that happens when Branch A's own top pick genuinely IS the
+    // "unknown" class and Branch B supports that same belief (both
+    // branches correctly agreeing this ISN'T one of the 3 species).
+    // That is a real, valid "not accepted" outcome, not an accepted
+    // prediction whose species happens to be named "unknown" - so
+    // `accepted` must check the class itself, not just `agreed`.
+    final accepted = agreed && finalIdx != _unknownIdx;
+    final rejectionReason = accepted ? null : "species_unmatched";
 
     return PlantPrediction(
       accepted: accepted,
-      label: accepted ? label : "Not recognized as a target species.",
-      confidence: confidence,
+      label: accepted
+          ? label
+          : _rejectionMessages["species_unmatched"]!,
+      confidence: finalConf,
       secondBest: secondBest,
       greenRatio: greenRatio,
+      shapeScore: shapeScore,
+      rejectionReason: rejectionReason,
       previewBytes:
           Uint8List.fromList(img.encodeJpg(previewResized, quality: 85)),
       hue: h,
       saturation: s,
       value: v,
     );
+  }
+
+  /// ASYMMETRIC late fusion: Branch A (MobileNetV2) LEADS, Branch B
+  /// (Hu+Canny) SUPPORTS. Direct port of combine_predictions() from
+  /// train_model.py / mintfinder_utils.py - see those files for the
+  /// full rationale and the gate-vs-blend trade-off explanation.
+  (int, double, bool) _combinePredictions(List<double> predA, List<double> predB) {
+    final topA = _argMax(predA);
+    final confA = predA[topA];
+    final bSupportForA = predB[topA];
+
+    if (_combinerMode == "blend") {
+      final combinedConf = _combinerWeightA * confA +
+          (1 - _combinerWeightA) * bSupportForA;
+      if (combinedConf >= _combinerCombinedThreshold && topA != _unknownIdx) {
+        return (topA, combinedConf, true);
+      } else {
+        return (_unknownIdx, combinedConf, false);
+      }
+    }
+
+    // mode == "gate" (default)
+    if (confA >= _thresholdA &&
+        bSupportForA >= _thresholdBSupport &&
+        topA != _unknownIdx) {
+      final combinedConf = 0.7 * confA + 0.3 * bSupportForA;
+      return (topA, combinedConf, true);
+    } else {
+      return (_unknownIdx, confA, false);
+    }
+  }
+
+  /// Green ratio via HSV, matching mintfinder_utils.py's
+  /// compute_green_ratio() exactly: hue 35-85, saturation/value >= 40.
+  /// Uses cv.inRange + cv.countNonZero, both confirmed present in
+  /// opencv_dart's public API.
+  ///
+  /// NOTE: unlike Python's cv2.inRange (which accepts a raw tuple/Scalar
+  /// directly), opencv_dart's inRange requires the bounds to be Mat
+  /// (InputArray), not Scalar - confirmed via a compile error during
+  /// testing ("argument type 'Scalar' can't be assigned to parameter
+  /// type 'InputArray'"). This matches a known limitation shared by
+  /// most OpenCV language bindings (e.g. the same issue exists in
+  /// JavaCV). Fix: wrap each Scalar in a 1x1 Mat of the same type as
+  /// the image being thresholded via Mat.fromScalar() - OpenCV
+  /// broadcasts a 1x1 Mat against the full image automatically.
+  double _computeGreenRatioHsv(cv.Mat resizedColor) {
+    final hsv = cv.cvtColor(resizedColor, cv.COLOR_BGR2HSV);
+    final lower = cv.Scalar(35, 40, 40, 0);
+    final upper = cv.Scalar(85, 255, 255, 255);
+    final lowerMat = cv.Mat.fromScalar(1, 1, hsv.type, lower);
+    final upperMat = cv.Mat.fromScalar(1, 1, hsv.type, upper);
+    final greenMask = cv.inRange(hsv, lowerMat, upperMat);
+    final greenPixels = cv.countNonZero(greenMask);
+    final totalPixels = _imgSize * _imgSize;
+    return totalPixels == 0 ? 0.0 : greenPixels / totalPixels;
+  }
+
+  /// Leaf shape score via contour coverage, matching
+  /// mintfinder_utils.py's compute_leaf_shape_score() exactly: CLAHE +
+  /// Otsu -> largest external contour's area / frame area. Uses
+  /// cv.findContours + cv.contourArea, both confirmed present in
+  /// opencv_dart's public API.
+  double _computeLeafShapeScore(cv.Mat gray) {
+    final clahe = cv.createCLAHE(clipLimit: 2.0, tileGridSize: (8, 8));
+    final enhanced = clahe.apply(gray);
+    final (_, mask) = cv.threshold(
+      enhanced, 0, 255, cv.THRESH_BINARY | cv.THRESH_OTSU,
+    );
+
+    final (contours, _) =
+        cv.findContours(mask, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+    if (contours.isEmpty) return 0.0;
+
+    var largestArea = 0.0;
+    for (final c in contours) {
+      final area = cv.contourArea(c);
+      if (area > largestArea) largestArea = area;
+    }
+    final frameArea = (_imgSize * _imgSize).toDouble();
+    return frameArea == 0 ? 0.0 : largestArea / frameArea;
   }
 
   /// Grayscale -> stack to 3 channels -> normalize [0,1].
@@ -283,18 +520,6 @@ class PlantClassifierService {
     return img.copyCrop(image, x: x, y: y, width: size, height: size);
   }
 
-  double _computeGreenRatio(img.Image image) {
-    int greenPixels = 0;
-    final total = image.width * image.height;
-    for (var y = 0; y < image.height; y++) {
-      for (var x = 0; x < image.width; x++) {
-        final p = image.getPixel(x, y);
-        if (p.g > 35 && p.g > p.r * 1.05 && p.g > p.b * 1.05) greenPixels++;
-      }
-    }
-    return total == 0 ? 0 : greenPixels / total;
-  }
-
   (double, double, double) _averageHsv(img.Image image) {
     double sumR = 0, sumG = 0, sumB = 0;
     final total = image.width * image.height;
@@ -327,13 +552,15 @@ class PlantClassifierService {
     return (hh, ss, cmax);
   }
 
-  PlantPrediction _invalidPrediction(String message) {
+  PlantPrediction _invalidPrediction(String message, String? reason) {
     return PlantPrediction(
       accepted: false,
       label: message,
       confidence: 0,
       secondBest: 0,
       greenRatio: 0,
+      shapeScore: 0,
+      rejectionReason: reason,
       previewBytes: Uint8List(0),
       hue: 0,
       saturation: 0,

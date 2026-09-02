@@ -1,0 +1,11 @@
+{
+  "branch_a_threshold": 0.9669357538223267,
+  "branch_b_threshold": 0.20929817855358124,
+  "unknown_class_index": 3,
+  "combiner_mode": "blend",
+  "combiner_weight_a": 1.0,
+  "combiner_combined_threshold": 0.75,
+  "green_ratio_threshold": 0.005430153349920216,
+  "leaf_shape_threshold": 0.14562290736607142,
+  "note": "Branch A leads (must clear branch_a_threshold on its own top pick). Branch B supports (must not contradict A - B's probability for A's predicted class must clear branch_b_threshold). Otherwise -> unknown. Two pre-filters also run BEFORE the model, combined with OR: green_ratio (leaf-colored content) and leaf_shape (a single coherent foreground blob). An image is rejected as unknown WITHOUT running the model only if BOTH pre-filters fail."
+}

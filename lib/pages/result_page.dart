@@ -4,42 +4,53 @@ import 'package:cloud_firestore/cloud_firestore.dart'; // ADD
 import '../data/plant_info.dart';
 
 class ResultPage extends StatefulWidget {
-  // CHANGED
   final String label;
   final double confidence;
   final Uint8List previewBytes;
+
+  // NEW: from PlantPrediction. `accepted` decides up front whether to try
+  // a plantInfo lookup at all - when false, `label` is a full sentence
+  // (the rejection message), not a short class key, so we must NOT run
+  // it through _normalizeLabel()/plantInfo lookup like before, or it
+  // renders as a garbled "key not found" error instead of the intended
+  // friendly message.
+  final bool accepted;
+  final String? rejectionReason; // "no_leaf_detected" | "species_unmatched" | null
 
   const ResultPage({
     super.key,
     required this.label,
     required this.confidence,
     required this.previewBytes,
+    required this.accepted,
+    this.rejectionReason,
   });
 
   @override
-  State<ResultPage> createState() => _ResultPageState(); // ADD
+  State<ResultPage> createState() => _ResultPageState();
 }
 
 class _ResultPageState extends State<ResultPage> {
-  // ADD
-
   @override
   void initState() {
     super.initState();
-    _saveScanToFirebase(); // ADD
+    // NOTE: this writes every scan to Firestore, including rejected
+    // ones. This is live network activity on every scan - worth
+    // confirming this is intentional given the thesis's stated
+    // offline-only requirement, or gating it behind an explicit
+    // opt-in/connectivity check.
+    _saveScanToFirebase();
   }
 
   Future<void> _saveScanToFirebase() async {
-    // ADD
     await FirebaseFirestore.instance.collection('scan_history').add({
       'label': widget.label,
       'confidence': widget.confidence,
+      'accepted': widget.accepted,
+      'rejectionReason': widget.rejectionReason,
       'timestamp': FieldValue.serverTimestamp(),
     });
   }
-
-  // ── Everything below is EXACTLY the same, just replace 'label' with 'widget.label'
-  //    and 'confidence' with 'widget.confidence' and 'previewBytes' with 'widget.previewBytes'
 
   String _normalizeLabel(String rawLabel) {
     return rawLabel
@@ -57,12 +68,16 @@ class _ResultPageState extends State<ResultPage> {
 
   @override
   Widget build(BuildContext context) {
-    final String cleanKey = _normalizeLabel(widget.label); // widget.
-    final data = plantInfo[cleanKey];
-
     final screenWidth = MediaQuery.of(context).size.width;
-    final confColor = _confidenceColor(widget.confidence); // widget.
-    final confPercent = widget.confidence * 100; // widget.
+    final confColor = _confidenceColor(widget.confidence);
+    final confPercent = widget.confidence * 100;
+
+    // Only attempt a plantInfo lookup when the model actually accepted a
+    // species. When rejected, `widget.label` holds the full human-readable
+    // rejection message and must never be run through _normalizeLabel().
+    final data = widget.accepted
+        ? plantInfo[_normalizeLabel(widget.label)]
+        : null;
 
     return Scaffold(
       backgroundColor: const Color(0xFF2E4F10),
@@ -75,244 +90,246 @@ class _ResultPageState extends State<ResultPage> {
           style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
         ),
       ),
-      body: data == null
-          ? _buildErrorState(cleanKey)
-          : SingleChildScrollView(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Stack(
+      body: !widget.accepted
+          ? _buildNotRecognizedState()
+          : data == null
+              ? _buildErrorState(_normalizeLabel(widget.label))
+              : SingleChildScrollView(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      ClipRRect(
-                        borderRadius: const BorderRadius.only(
-                          bottomLeft: Radius.circular(32),
-                          bottomRight: Radius.circular(32),
-                        ),
-                        child: Image.memory(
-                          widget.previewBytes, // widget.
-                          width: screenWidth,
-                          height: 300,
-                          fit: BoxFit.cover,
-                        ),
-                      ),
-                      Positioned(
-                        bottom: 0,
-                        left: 0,
-                        right: 0,
-                        child: Container(
-                          height: 100,
-                          decoration: BoxDecoration(
+                      Stack(
+                        children: [
+                          ClipRRect(
                             borderRadius: const BorderRadius.only(
                               bottomLeft: Radius.circular(32),
                               bottomRight: Radius.circular(32),
                             ),
-                            gradient: LinearGradient(
-                              begin: Alignment.bottomCenter,
-                              end: Alignment.topCenter,
-                              colors: [
-                                Colors.black.withOpacity(0.6),
-                                Colors.transparent,
-                              ],
+                            child: Image.memory(
+                              widget.previewBytes,
+                              width: screenWidth,
+                              height: 300,
+                              fit: BoxFit.cover,
                             ),
                           ),
-                        ),
-                      ),
-                      Positioned(
-                        top: 14,
-                        right: 16,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 6,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.black.withOpacity(0.55),
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(Icons.verified, color: confColor, size: 16),
-                              const SizedBox(width: 5),
-                              Text(
-                                "${confPercent.toStringAsFixed(1)}%",
-                                style: TextStyle(
-                                  color: confColor,
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 13,
+                          Positioned(
+                            bottom: 0,
+                            left: 0,
+                            right: 0,
+                            child: Container(
+                              height: 100,
+                              decoration: BoxDecoration(
+                                borderRadius: const BorderRadius.only(
+                                  bottomLeft: Radius.circular(32),
+                                  bottomRight: Radius.circular(32),
+                                ),
+                                gradient: LinearGradient(
+                                  begin: Alignment.bottomCenter,
+                                  end: Alignment.topCenter,
+                                  colors: [
+                                    Colors.black.withOpacity(0.6),
+                                    Colors.transparent,
+                                  ],
                                 ),
                               ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-
-                  const SizedBox(height: 24),
-
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 20),
-                    child: Container(
-                      padding: const EdgeInsets.all(20),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.08),
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(
-                          color: Colors.white.withOpacity(0.15),
-                        ),
-                      ),
-                      child: Column(
-                        children: [
-                          Text(
-                            data['name'],
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 26,
-                              fontWeight: FontWeight.bold,
                             ),
                           ),
-                          const SizedBox(height: 4),
-                          Text(
-                            data['scientific'],
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              color: Colors.greenAccent.withOpacity(0.85),
-                              fontSize: 15,
-                              fontStyle: FontStyle.italic,
-                            ),
-                          ),
-                          const SizedBox(height: 16),
-                          Divider(color: Colors.white.withOpacity(0.15)),
-                          const SizedBox(height: 16),
-                          Row(
-                            children: [
-                              const Text(
-                                "Confidence Score",
-                                style: TextStyle(
-                                  color: Colors.white70,
-                                  fontSize: 13,
-                                ),
+                          Positioned(
+                            top: 14,
+                            right: 16,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 6,
                               ),
-                              const Spacer(),
-                              Text(
-                                "${confPercent.toStringAsFixed(2)}%",
-                                style: TextStyle(
-                                  color: confColor,
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 13,
-                                ),
+                              decoration: BoxDecoration(
+                                color: Colors.black.withOpacity(0.55),
+                                borderRadius: BorderRadius.circular(20),
                               ),
-                            ],
-                          ),
-                          const SizedBox(height: 8),
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(8),
-                            child: LinearProgressIndicator(
-                              value: widget.confidence, // widget.
-                              minHeight: 8,
-                              backgroundColor: Colors.white.withOpacity(0.15),
-                              valueColor: AlwaysStoppedAnimation<Color>(
-                                confColor,
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.verified, color: confColor, size: 16),
+                                  const SizedBox(width: 5),
+                                  Text(
+                                    "${confPercent.toStringAsFixed(1)}%",
+                                    style: TextStyle(
+                                      color: confColor,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
                           ),
                         ],
                       ),
-                    ),
-                  ),
 
-                  const SizedBox(height: 16),
+                      const SizedBox(height: 24),
 
-                  if (data['description'] != null)
-                    _buildSectionCard(
-                      title: "About",
-                      icon: Icons.info_outline,
-                      content: Text(
-                        data['description'],
-                        style: const TextStyle(
-                          color: Colors.white70,
-                          fontSize: 15,
-                          height: 1.6,
-                        ),
-                      ),
-                    ),
-
-                  const SizedBox(height: 16),
-
-                  if (data['uses'] != null)
-                    _buildSectionCard(
-                      title: "Uses / Remedies",
-                      icon: Icons.healing_outlined,
-                      content: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: (data['uses'] as List)
-                            .map((use) => _BulletRow(text: use))
-                            .toList(),
-                      ),
-                    ),
-
-                  const SizedBox(height: 16),
-
-                  if (data['safetyMeasures'] != null)
-                    _buildSectionCard(
-                      title: "⚠ Safety Measures",
-                      icon: Icons.warning_amber_rounded,
-                      iconColor: Colors.orangeAccent,
-                      titleColor: Colors.orangeAccent,
-                      content: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: (data['safetyMeasures'] as List)
-                            .map(
-                              (s) => _BulletRow(
-                                text: s,
-                                bulletColor: Colors.orangeAccent,
-                              ),
-                            )
-                            .toList(),
-                      ),
-                    ),
-
-                  const SizedBox(height: 16),
-
-                  _buildSectionCard(
-                    title: "Common Names",
-                    icon: Icons.label_outline,
-                    content: Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: (data['otherNames'] as List)
-                          .map(
-                            (name) => Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 14,
-                                vertical: 7,
-                              ),
-                              decoration: BoxDecoration(
-                                color: Colors.white.withOpacity(0.12),
-                                borderRadius: BorderRadius.circular(20),
-                                border: Border.all(
-                                  color: Colors.white.withOpacity(0.2),
-                                ),
-                              ),
-                              child: Text(
-                                name,
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 20),
+                        child: Container(
+                          padding: const EdgeInsets.all(20),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.08),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(
+                              color: Colors.white.withOpacity(0.15),
+                            ),
+                          ),
+                          child: Column(
+                            children: [
+                              Text(
+                                data['name'],
+                                textAlign: TextAlign.center,
                                 style: const TextStyle(
                                   color: Colors.white,
-                                  fontSize: 13,
+                                  fontSize: 26,
+                                  fontWeight: FontWeight.bold,
                                 ),
                               ),
-                            ),
-                          )
-                          .toList(),
-                    ),
-                  ),
+                              const SizedBox(height: 4),
+                              Text(
+                                data['scientific'],
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  color: Colors.greenAccent.withOpacity(0.85),
+                                  fontSize: 15,
+                                  fontStyle: FontStyle.italic,
+                                ),
+                              ),
+                              const SizedBox(height: 16),
+                              Divider(color: Colors.white.withOpacity(0.15)),
+                              const SizedBox(height: 16),
+                              Row(
+                                children: [
+                                  const Text(
+                                    "Confidence Score",
+                                    style: TextStyle(
+                                      color: Colors.white70,
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                  const Spacer(),
+                                  Text(
+                                    "${confPercent.toStringAsFixed(2)}%",
+                                    style: TextStyle(
+                                      color: confColor,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(8),
+                                child: LinearProgressIndicator(
+                                  value: widget.confidence,
+                                  minHeight: 8,
+                                  backgroundColor: Colors.white.withOpacity(0.15),
+                                  valueColor: AlwaysStoppedAnimation<Color>(
+                                    confColor,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
 
-                  const SizedBox(height: 32),
-                ],
-              ),
-            ),
+                      const SizedBox(height: 16),
+
+                      if (data['description'] != null)
+                        _buildSectionCard(
+                          title: "About",
+                          icon: Icons.info_outline,
+                          content: Text(
+                            data['description'],
+                            style: const TextStyle(
+                              color: Colors.white70,
+                              fontSize: 15,
+                              height: 1.6,
+                            ),
+                          ),
+                        ),
+
+                      const SizedBox(height: 16),
+
+                      if (data['uses'] != null)
+                        _buildSectionCard(
+                          title: "Uses / Remedies",
+                          icon: Icons.healing_outlined,
+                          content: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: (data['uses'] as List)
+                                .map((use) => _BulletRow(text: use))
+                                .toList(),
+                          ),
+                        ),
+
+                      const SizedBox(height: 16),
+
+                      if (data['safetyMeasures'] != null)
+                        _buildSectionCard(
+                          title: "⚠ Safety Measures",
+                          icon: Icons.warning_amber_rounded,
+                          iconColor: Colors.orangeAccent,
+                          titleColor: Colors.orangeAccent,
+                          content: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: (data['safetyMeasures'] as List)
+                                .map(
+                                  (s) => _BulletRow(
+                                    text: s,
+                                    bulletColor: Colors.orangeAccent,
+                                  ),
+                                )
+                                .toList(),
+                          ),
+                        ),
+
+                      const SizedBox(height: 16),
+
+                      _buildSectionCard(
+                        title: "Common Names",
+                        icon: Icons.label_outline,
+                        content: Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: (data['otherNames'] as List)
+                              .map(
+                                (name) => Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 14,
+                                    vertical: 7,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white.withOpacity(0.12),
+                                    borderRadius: BorderRadius.circular(20),
+                                    border: Border.all(
+                                      color: Colors.white.withOpacity(0.2),
+                                    ),
+                                  ),
+                                  child: Text(
+                                    name,
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                ),
+                              )
+                              .toList(),
+                        ),
+                      ),
+
+                      const SizedBox(height: 32),
+                    ],
+                  ),
+                ),
     );
   }
 
@@ -352,6 +369,49 @@ class _ResultPageState extends State<ResultPage> {
             ),
             const SizedBox(height: 12),
             content,
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Shown when the model rejected the image (accepted == false). Uses
+  /// widget.label directly - which is now the full, friendly rejection
+  /// message from classifier_service.dart's _rejectionMessages map - and
+  /// picks an icon based on WHY it was rejected, so the two failure modes
+  /// (no leaf detected at all vs. leaf detected but species unmatched)
+  /// read as visually distinct, not identical generic "error" screens.
+  Widget _buildNotRecognizedState() {
+    final isNoLeaf = widget.rejectionReason == "no_leaf_detected";
+    final icon = isNoLeaf ? Icons.photo_camera_back_outlined : Icons.help_outline;
+
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 32),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, color: Colors.white38, size: 64),
+            const SizedBox(height: 20),
+            Text(
+              isNoLeaf ? "No Leaf Detected" : "Species Not Recognized",
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 12),
+            Text(
+              widget.label, // the full rejection message
+              style: const TextStyle(
+                color: Colors.white70,
+                fontSize: 14,
+                height: 1.5,
+              ),
+              textAlign: TextAlign.center,
+            ),
           ],
         ),
       ),
