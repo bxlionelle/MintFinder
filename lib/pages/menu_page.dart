@@ -3,7 +3,6 @@ import 'skeu_theme.dart';
 import 'capture_page.dart';
 import 'almanac_page.dart';
 import 'developers_page.dart';
-import 'history_page.dart';
 
 /// A single skeuomorphic "photo tile" menu entry - gradient panel standing
 /// in for a real photo (see note below), large watermark icon, diagonal
@@ -116,6 +115,19 @@ class MenuTile extends StatelessWidget {
   }
 }
 
+// ═══════════════════════════════════════════════════════════════════
+//  APP FLOW MAP
+//
+//   TutorialWalkthroughPage  (or AppEntryPage directly, on repeat launches)
+//         |
+//         v
+//   MenuPage  <-- YOU ARE HERE  (hub - buttons vertically centered)
+//         |
+//    ┌────┴────┐
+//    v         v
+//  CapturePage  AlmanacPage
+// ═══════════════════════════════════════════════════════════════════
+
 class MenuPage extends StatelessWidget {
   const MenuPage({super.key});
 
@@ -127,68 +139,48 @@ class MenuPage extends StatelessWidget {
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 24),
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.center,
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const SizedBox(height: 24),
               const Text(
                 "MintFinder",
                 style: TextStyle(
-                  fontSize: 26,
+                  fontSize: 30,
                   fontWeight: FontWeight.bold,
                   color: kGreenDark,
                 ),
               ),
-              const SizedBox(height: 4),
-              const Text(
-                "What would you like to do?",
-                style: TextStyle(fontSize: 14, color: Colors.black54),
+              const SizedBox(height: 28),
+              MenuTile(
+                label: "Camera",
+                icon: Icons.camera_alt,
+                gradient: const [Color(0xFF2F6B5A), Color(0xFF1A3D33)],
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const CapturePage()),
+                ),
               ),
-              const SizedBox(height: 20),
-              Expanded(
-                child: ListView(
-                  children: [
-                    MenuTile(
-                      label: "Camera",
-                      icon: Icons.camera_alt,
-                      gradient: const [Color(0xFF2F6B5A), Color(0xFF1A3D33)],
-                      onTap: () => Navigator.push(
-                        context,
-                        MaterialPageRoute(builder: (_) => const CapturePage()),
-                      ),
-                    ),
-                    MenuTile(
-                      label: "History",
-                      icon: Icons.history,
-                      gradient: const [Color(0xFFB0862E), Color(0xFF6E5218)],
-                      onTap: () => Navigator.push(
-                        context,
-                        MaterialPageRoute(builder: (_) => const HistoryPage()),
-                      ),
-                    ),
-                    MenuTile(
-                      label: "Almanac",
-                      icon: Icons.local_florist,
-                      gradient: const [kGreenLight, kGreenDark],
-                      onTap: () => Navigator.push(
-                        context,
-                        MaterialPageRoute(builder: (_) => const AlmanacPage()),
-                      ),
-                    ),
-                    // Kept hidden to match current app behavior - flip
-                    // `visible` to true to show the Developers tile again.
-                    Visibility(
-                      visible: false,
-                      child: MenuTile(
-                        label: "Developers",
-                        icon: Icons.code,
-                        gradient: const [Color(0xFF5B4B8A), Color(0xFF352A54)],
-                        onTap: () => Navigator.push(
-                          context,
-                          MaterialPageRoute(builder: (_) => const DevelopersPage()),
-                        ),
-                      ),
-                    ),
-                  ],
+              MenuTile(
+                label: "Almanac",
+                icon: Icons.local_florist,
+                gradient: const [kGreenLight, kGreenDark],
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const AlmanacPage()),
+                ),
+              ),
+              // Kept hidden to match current app behavior - flip
+              // `visible` to true to show the Developers tile again.
+              Visibility(
+                visible: false,
+                child: MenuTile(
+                  label: "Developers",
+                  icon: Icons.code,
+                  gradient: const [Color(0xFF5B4B8A), Color(0xFF352A54)],
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const DevelopersPage()),
+                  ),
                 ),
               ),
             ],

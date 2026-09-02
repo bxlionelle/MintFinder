@@ -1,4 +1,18 @@
 // capture_page.dart
+//
+// ═══════════════════════════════════════════════════════════════════
+//  APP FLOW MAP
+//
+//   MenuPage
+//         |
+//         v
+//   CapturePage  <-- YOU ARE HERE
+//         |
+//    accepted? ──yes──> ResultPage
+//         |no
+//         v
+//   "NOT RECOGNIZE" dialog (stays on this page)
+// ═══════════════════════════════════════════════════════════════════
 import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
@@ -10,7 +24,7 @@ import 'package:image_picker/image_picker.dart';
 import '../main.dart';
 import '../services/classifier_service.dart';
 import 'result_page.dart';
-import 'help_page.dart';
+import 'app_settings.dart';
 
 class CapturePage extends StatefulWidget {
   const CapturePage({super.key});
@@ -31,16 +45,13 @@ class _CapturePageState extends State<CapturePage>
 
   late AnimationController _scanController;
 
-  // ── Focus (tap-to-focus) state ──────────────────────────────────────────
-  Offset? _focusIndicatorPosition; // in preview-local coordinates
+  Offset? _focusIndicatorPosition;
   Timer? _focusIndicatorTimer;
 
-  // ── Exposure / brightness state ─────────────────────────────────────────
   double _minExposureOffset = 0.0;
   double _maxExposureOffset = 0.0;
   double _currentExposureOffset = 0.0;
 
-  // ── Zoom state ───────────────────────────────────────────────────────────
   double _minZoom = 1.0;
   double _maxZoom = 1.0;
   double _currentZoom = 1.0;
@@ -48,8 +59,10 @@ class _CapturePageState extends State<CapturePage>
   bool _showZoomIndicator = false;
   Timer? _zoomIndicatorTimer;
 
-  // ── Flash state ──────────────────────────────────────────────────────────
-  bool _flashOn = false;
+  // Flash is still wired up in code (setFlashMode still works if you
+  // want it back later) but the BUTTON is hidden per request - see
+  // _buildBottomIconRow(). Flash stays off.
+  final bool _flashOn = false;
 
   @override
   void initState() {
@@ -72,7 +85,6 @@ class _CapturePageState extends State<CapturePage>
     await _cameraController!.initialize();
     await _classifier.loadModel();
 
-    // Real exposure-offset range this device/camera supports.
     try {
       _minExposureOffset = await _cameraController!.getMinExposureOffset();
       _maxExposureOffset = await _cameraController!.getMaxExposureOffset();
@@ -82,7 +94,6 @@ class _CapturePageState extends State<CapturePage>
     }
     _currentExposureOffset = 0.0;
 
-    // Real zoom range this device/camera supports.
     try {
       _minZoom = await _cameraController!.getMinZoomLevel();
       _maxZoom = await _cameraController!.getMaxZoomLevel();
@@ -139,6 +150,7 @@ class _CapturePageState extends State<CapturePage>
   }
 
   Future<void> _processImage(File file, {required bool deleteAfter}) async {
+    final s = AppSettings.instance;
     try {
       final prediction = await _classifier.predict(file);
 
@@ -152,28 +164,37 @@ class _CapturePageState extends State<CapturePage>
       _scanController.stop();
 
       if (!prediction.accepted) {
-        final isNoLeaf = prediction.rejectionReason == "no_leaf_detected";
-
+        // Simplified per request: just show "NOT RECOGNIZE" plainly -
+        // no message body, no confidence/green-ratio/shape-coverage
+        // breakdown in the user-facing dialog (prediction.label is
+        // already the fixed "NOT RECOGNIZE" text from
+        // classifier_service.dart - not translated, same treatment
+        // as "SCANNING").
         await showDialog(
           context: context,
           builder: (_) => AlertDialog(
             backgroundColor: const Color(0xFF2E4F10),
-            title: Text(
-              isNoLeaf ? "No Leaf Detected" : "Not Recognized",
-              style: const TextStyle(color: Colors.white),
-            ),
-            content: Text(
-              "${prediction.label}\n\n"
-              "Confidence: ${(prediction.confidence * 100).toStringAsFixed(1)}%\n"
-              "Green ratio: ${(prediction.greenRatio * 100).toStringAsFixed(1)}%\n"
-              "Shape coverage: ${(prediction.shapeScore * 100).toStringAsFixed(1)}%",
-              style: const TextStyle(color: Colors.white70),
+            content: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              child: Text(
+                prediction.label,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: s.scaled(22),
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 1.2,
+                ),
+              ),
             ),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(context),
-                child: const Text("OK",
-                    style: TextStyle(color: Colors.lightGreenAccent)),
+                child: Text(
+                  s.t("ok"),
+                  style: TextStyle(
+                      color: Colors.lightGreenAccent, fontSize: s.scaled(14)),
+                ),
               ),
             ],
           ),
@@ -218,14 +239,6 @@ class _CapturePageState extends State<CapturePage>
     }
   }
 
-  void _openHelpPage() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => const HelpPage()),
-    );
-  }
-
-  // ── Tap-to-focus ─────────────────────────────────────────────────────────
   Future<void> _onTapToFocus(Offset localPosition, Size previewSize) async {
     if (_cameraController == null || !_cameraController!.value.isInitialized) {
       return;
@@ -247,7 +260,6 @@ class _CapturePageState extends State<CapturePage>
     });
   }
 
-  // ── Pinch-to-zoom ────────────────────────────────────────────────────────
   void _onScaleStart(ScaleStartDetails details) {
     _baseZoomOnGestureStart = _currentZoom;
   }
@@ -272,17 +284,6 @@ class _CapturePageState extends State<CapturePage>
     });
   }
 
-  // ── Flash toggle ─────────────────────────────────────────────────────────
-  Future<void> _toggleFlash() async {
-    if (_cameraController == null) return;
-    final turnOn = !_flashOn;
-    try {
-      await _cameraController!
-          .setFlashMode(turnOn ? FlashMode.torch : FlashMode.off);
-      setState(() => _flashOn = turnOn);
-    } catch (_) {}
-  }
-
   Widget _buildSquarePreview() {
     if (_cameraController == null ||
         !_cameraController!.value.isInitialized) {
@@ -291,9 +292,6 @@ class _CapturePageState extends State<CapturePage>
     return CameraPreview(_cameraController!);
   }
 
-  /// A leaf-shaped outline guide - no dark vignette, just a clean stroke
-  /// (with a soft dark backing stroke for visibility over any live
-  /// background) plus a faint midrib line down the center.
   Widget _buildFrameGuide() {
     return const IgnorePointer(
       child: CustomPaint(
@@ -424,9 +422,11 @@ class _CapturePageState extends State<CapturePage>
                     ),
                   ),
                 ),
+                // "SCANNING" is intentionally NOT translated - shown
+                // as-is regardless of the chosen language, per request.
                 const Center(
                   child: Text(
-                    "AI ANALYZING...",
+                    "SCANNING",
                     style: TextStyle(
                       color: Colors.white,
                       fontSize: 18,
@@ -463,139 +463,132 @@ class _CapturePageState extends State<CapturePage>
       );
     }
 
-    return Scaffold(
-      backgroundColor: const Color(0xFF456F1F),
-      body: SafeArea(
-        child: Stack(
-          children: [
-            Column(
+    return ListenableBuilder(
+      listenable: AppSettings.instance,
+      builder: (context, _) {
+        final s = AppSettings.instance;
+        return Scaffold(
+          backgroundColor: const Color(0xFF456F1F),
+          body: SafeArea(
+            child: Stack(
               children: [
-                const SizedBox(height: 56),
-                Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 20),
-                    child: Container(
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        border: Border.all(
-                            color: Colors.lightGreenAccent, width: 2),
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Column(
-                        children: [
-                          Expanded(
-                            child: ClipRRect(
-                              borderRadius: BorderRadius.circular(12),
-                              child: Container(
-                                width: double.infinity,
-                                color: Colors.black12,
-                                child: LayoutBuilder(
-                                  builder: (context, constraints) {
-                                    final previewSize = Size(
-                                        constraints.maxWidth,
-                                        constraints.maxHeight);
-                                    final liveFeedActive =
-                                        _previewBytes == null && !_predicting;
+                Column(
+                  children: [
+                    const SizedBox(height: 56),
+                    Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 20),
+                        child: Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            border: Border.all(
+                                color: Colors.lightGreenAccent, width: 2),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Column(
+                            children: [
+                              Expanded(
+                                child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(12),
+                                  child: Container(
+                                    width: double.infinity,
+                                    color: Colors.black12,
+                                    child: LayoutBuilder(
+                                      builder: (context, constraints) {
+                                        final previewSize = Size(
+                                            constraints.maxWidth,
+                                            constraints.maxHeight);
+                                        final liveFeedActive =
+                                            _previewBytes == null &&
+                                                !_predicting;
 
-                                    return GestureDetector(
-                                      onTapUp: liveFeedActive
-                                          ? (details) => _onTapToFocus(
-                                              details.localPosition,
-                                              previewSize)
-                                          : null,
-                                      onScaleStart:
-                                          liveFeedActive ? _onScaleStart : null,
-                                      onScaleUpdate: liveFeedActive
-                                          ? _onScaleUpdate
-                                          : null,
-                                      child: Stack(
-                                        fit: StackFit.expand,
-                                        children: [
-                                          if (_previewBytes != null)
-                                            Image.memory(_previewBytes!,
-                                                fit: BoxFit.cover)
-                                          else
-                                            _buildSquarePreview(),
-                                          if (liveFeedActive)
-                                            _buildFrameGuide(),
-                                          if (liveFeedActive)
-                                            _buildExposureSlider(),
-                                          if (liveFeedActive)
-                                            _buildFocusIndicator(),
-                                          if (liveFeedActive)
-                                            _buildZoomIndicator(),
-                                          if (_predicting)
-                                            _buildScannerOverlay(),
-                                        ],
-                                      ),
-                                    );
-                                  },
+                                        return GestureDetector(
+                                          onTapUp: liveFeedActive
+                                              ? (details) => _onTapToFocus(
+                                                  details.localPosition,
+                                                  previewSize)
+                                              : null,
+                                          onScaleStart: liveFeedActive
+                                              ? _onScaleStart
+                                              : null,
+                                          onScaleUpdate: liveFeedActive
+                                              ? _onScaleUpdate
+                                              : null,
+                                          child: Stack(
+                                            fit: StackFit.expand,
+                                            children: [
+                                              if (_previewBytes != null)
+                                                Image.memory(_previewBytes!,
+                                                    fit: BoxFit.cover)
+                                              else
+                                                _buildSquarePreview(),
+                                              if (liveFeedActive)
+                                                _buildFrameGuide(),
+                                              if (liveFeedActive)
+                                                _buildExposureSlider(),
+                                              if (liveFeedActive)
+                                                _buildFocusIndicator(),
+                                              if (liveFeedActive)
+                                                _buildZoomIndicator(),
+                                              if (_predicting)
+                                                _buildScannerOverlay(),
+                                            ],
+                                          ),
+                                        );
+                                      },
+                                    ),
+                                  ),
                                 ),
                               ),
-                            ),
+                              const SizedBox(height: 14),
+                              _buildBottomIconRow(),
+                            ],
                           ),
-                          const SizedBox(height: 14),
-                          _buildBottomIconRow(),
-                        ],
+                        ),
                       ),
                     ),
-                  ),
+                    const SizedBox(height: 14),
+                    Text(
+                      s.t("position_leaf"),
+                      style: TextStyle(
+                          color: Colors.white70, fontSize: s.scaled(14)),
+                    ),
+                    const SizedBox(height: 20),
+                  ],
                 ),
-                const SizedBox(height: 14),
-                const Text(
-                  "Position the leaf within the frame",
-                  style: TextStyle(color: Colors.white70, fontSize: 14),
-                ),
-                const SizedBox(height: 20),
+                _buildTopFloatingButtons(),
               ],
             ),
-            _buildTopFloatingButtons(),
-          ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildTopFloatingButtons() {
+    // Help button removed along with help_page.dart import - back
+    // button only now, since the tutorial is reachable from the flow
+    // itself rather than a per-page help icon.
+    return Positioned(
+      top: 8,
+      left: 28,
+      child: GestureDetector(
+        onTap: () => Navigator.pop(context),
+        child: Container(
+          width: 40,
+          height: 40,
+          decoration: const BoxDecoration(
+            shape: BoxShape.circle,
+            color: Color(0xFF2E4F10),
+          ),
+          child: const Icon(Icons.arrow_back, color: Colors.white, size: 20),
         ),
       ),
     );
   }
 
-  Widget _buildTopFloatingButtons() {
-    return Positioned(
-      top: 8,
-      left: 28,
-      right: 28,
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          GestureDetector(
-            onTap: () => Navigator.pop(context),
-            child: Container(
-              width: 40,
-              height: 40,
-              decoration: const BoxDecoration(
-                shape: BoxShape.circle,
-                color: Color(0xFF2E4F10),
-              ),
-              child: const Icon(Icons.arrow_back, color: Colors.white, size: 20),
-            ),
-          ),
-          GestureDetector(
-            onTap: _openHelpPage,
-            child: Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: const Color(0xFF456F1F),
-                border: Border.all(color: Colors.lightGreenAccent, width: 2),
-              ),
-              child: const Icon(Icons.question_mark,
-                  color: Colors.lightGreenAccent, size: 18),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildBottomIconRow() {
+    // Flash button hidden per request - gallery + shutter only now.
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
       children: [
@@ -605,11 +598,7 @@ class _CapturePageState extends State<CapturePage>
           onTap: _predicting ? null : _pickFromGallery,
         ),
         _captureButton(),
-        _outlineIconButton(
-          icon: _flashOn ? Icons.flash_on : Icons.flash_off,
-          onTap: _toggleFlash,
-          highlighted: _flashOn,
-        ),
+        const SizedBox(width: 46), // keeps the shutter button centered
       ],
     );
   }
@@ -671,10 +660,6 @@ class _CapturePageState extends State<CapturePage>
   }
 }
 
-/// Leaf-shaped outline guide (pointed tip, wide middle, tapered base at
-/// a small "stem" point), drawn directly over the live feed with no
-/// dark vignette - a soft dark backing stroke plus a white outline on
-/// top for visibility over any background, and a faint midrib line.
 class _LeafFrameGuidePainter extends CustomPainter {
   const _LeafFrameGuidePainter();
 
@@ -711,7 +696,6 @@ class _LeafFrameGuidePainter extends CustomPainter {
     );
     final leafPath = _buildLeafPath(bounds);
 
-    // Soft dark backing stroke for visibility over light backgrounds...
     canvas.drawPath(
       leafPath,
       Paint()
@@ -719,7 +703,6 @@ class _LeafFrameGuidePainter extends CustomPainter {
         ..style = PaintingStyle.stroke
         ..strokeWidth = 5,
     );
-    // ...then a crisp white outline on top, visible over dark backgrounds.
     canvas.drawPath(
       leafPath,
       Paint()
@@ -728,7 +711,6 @@ class _LeafFrameGuidePainter extends CustomPainter {
         ..strokeWidth = 3.5,
     );
 
-    // Faint midrib guide line down the center.
     canvas.drawLine(
       Offset(center.dx, bounds.top + bounds.height * 0.10),
       Offset(center.dx, bounds.bottom - bounds.height * 0.05),

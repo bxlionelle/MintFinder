@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
-import 'package:firebase_core/firebase_core.dart'; // ADD THIS
-import 'package:cloud_firestore/cloud_firestore.dart'; // ADD THIS
+import 'package:firebase_core/firebase_core.dart';
+import 'package:cloud_firestore/cloud_firestore.dart'; 
+import 'pages/app_entry_page.dart';
 
-import 'pages/disclaimer_page.dart';
+
 
 late List<CameraDescription> cameras;
 
@@ -30,7 +31,7 @@ class MintFinderApp extends StatelessWidget {
         primarySwatch: Colors.green,
         scaffoldBackgroundColor: Colors.white,
       ),
-      home: const DisclaimerPage(),
+      home: const AppEntryPage(),
     );
   }
 }

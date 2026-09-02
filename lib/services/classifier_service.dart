@@ -40,6 +40,19 @@ import 'package:tflite_flutter/tflite_flutter.dart';
 
 import 'feature_scaler.dart';
 
+/// Result of checkFrameAlignment() - just the pre-filter verdict, no
+/// species prediction involved.
+class FrameAlignmentResult {
+  final bool passed;
+  final double greenRatio;
+  final double shapeScore;
+  FrameAlignmentResult({
+    required this.passed,
+    required this.greenRatio,
+    required this.shapeScore,
+  });
+}
+
 class PlantPrediction {
   final bool accepted;
   final String label;
@@ -47,7 +60,9 @@ class PlantPrediction {
   final double secondBest;
   final double greenRatio;
   final double shapeScore;
-  final String? rejectionReason; // "no_leaf_detected" | "species_unmatched" | null
+  final String? rejectionReason; // "not_recognized" | null - merged into a
+                                   // single outcome (was previously two:
+                                   // "no_leaf_detected" and "species_unmatched")
   final Uint8List previewBytes;
   final double hue;
   final double saturation;
@@ -70,16 +85,10 @@ class PlantPrediction {
 
 /// User-facing messages for the two different "unknown" reasons -
 /// mirrors mintfinder_utils.py's REJECTION_MESSAGES exactly.
+/// Fixed, short status label - NOT translated (same treatment as
+/// "SCANNING"), shown regardless of chosen language, per request.
 const Map<String, String> _rejectionMessages = {
-  "no_leaf_detected":
-      "We couldn't detect a leaf in this photo. Please take a clear "
-      "photo of a single leaf, filling most of the frame, showing its "
-      "shape and vein pattern.",
-  "species_unmatched":
-      "We detected something leaf-like, but couldn't confidently match "
-      "it to Cat's Whiskers, Lemon Basil, or Mojito Mint. Try a "
-      "clearer, well-lit photo of a single leaf against a plain "
-      "background.",
+  "not_recognized": "NOT RECOGNIZE",
 };
 
 class PlantClassifierService {
@@ -187,6 +196,36 @@ class PlantClassifierService {
     }
   }
 
+  /// Runs ONLY the two cheap pre-filters (green ratio + leaf shape) - no
+  /// TFLite inference at all - against a captured/picked photo. Used by
+  /// the interactive tutorial to give real, immediate "well aligned" /
+  /// "try again" feedback using the EXACT same check the real capture
+  /// flow uses, without running a full prediction.
+  Future<FrameAlignmentResult> checkFrameAlignment(File imageFile) async {
+    final bytes = await imageFile.readAsBytes();
+    final original = cv.imdecode(bytes, cv.IMREAD_COLOR);
+    final resized = cv.resize(original, (_imgSize, _imgSize));
+
+    final greenRatio = _computeGreenRatioHsv(resized);
+    final gray = cv.cvtColor(resized, cv.COLOR_BGR2GRAY);
+    final shapeScore = _computeLeafShapeScore(gray);
+
+    final checks = <bool>[];
+    if (_greenRatioThreshold != null) {
+      checks.add(greenRatio >= _greenRatioThreshold!);
+    }
+    if (_leafShapeThreshold != null) {
+      checks.add(shapeScore >= _leafShapeThreshold!);
+    }
+    final passed = checks.isEmpty || checks.any((c) => c);
+
+    return FrameAlignmentResult(
+      passed: passed,
+      greenRatio: greenRatio,
+      shapeScore: shapeScore,
+    );
+  }
+
   Future<PlantPrediction> predict(File imageFile) async {
     if (_interpreter == null || _scaler == null) {
       print("[MintFinder] predict() aborted - model/scaler not loaded");
@@ -243,16 +282,16 @@ class PlantClassifierService {
     final prefilterPassed = checks.isEmpty || checks.any((c) => c);
 
     if (!prefilterPassed) {
-      print("[MintFinder] REJECTED by pre-filter (no_leaf_detected) - "
+      print("[MintFinder] REJECTED by pre-filter (not_recognized) - "
           "model not run");
       return PlantPrediction(
         accepted: false,
-        label: _rejectionMessages["no_leaf_detected"]!,
-        confidence: 1.0,
+        label: _rejectionMessages["not_recognized"]!,
+        confidence: 0.0, // model never ran - no Branch A confidence exists
         secondBest: 0.0,
         greenRatio: greenRatio,
         shapeScore: shapeScore,
-        rejectionReason: "no_leaf_detected",
+        rejectionReason: "not_recognized",
         previewBytes:
             Uint8List.fromList(img.encodeJpg(previewResized, quality: 85)),
         hue: h,
@@ -298,11 +337,19 @@ class PlantClassifierService {
       return sortedA.length > 1 ? sortedA[1] : 0.0;
     }();
 
+    // Displayed confidence is now ALWAYS Branch A's own confidence in its
+    // top pick - the combiner's blended finalConf is still used
+    // internally (above) to decide accept/reject, but is no longer what
+    // gets shown to the user.
+    final branchAConfidence = predA[_argMax(predA)];
+
     print("[MintFinder] Branch A top: ${_labels[_argMax(predA)]} "
         "(${predA[_argMax(predA)]})  "
         "B support for A's guess: ${predB[_argMax(predA)]}  "
-        "mode=$_combinerMode  agreed: $agreed  finalConf: $finalConf");
-    print("[MintFinder] FINAL: $label ($finalConf)");
+        "mode=$_combinerMode  agreed: $agreed  "
+        "finalConf(internal): $finalConf  "
+        "displayedConf(BranchA): $branchAConfidence");
+    print("[MintFinder] FINAL: $label ($branchAConfidence)");
 
     // IMPORTANT: `agreed` can be true even when finalIdx == _unknownIdx -
     // that happens when Branch A's own top pick genuinely IS the
@@ -312,14 +359,14 @@ class PlantClassifierService {
     // prediction whose species happens to be named "unknown" - so
     // `accepted` must check the class itself, not just `agreed`.
     final accepted = agreed && finalIdx != _unknownIdx;
-    final rejectionReason = accepted ? null : "species_unmatched";
+    // Merged single outcome - was previously "no_leaf_detected" vs
+    // "species_unmatched" as two separate reasons. Now just one.
+    final rejectionReason = accepted ? null : "not_recognized";
 
     return PlantPrediction(
       accepted: accepted,
-      label: accepted
-          ? label
-          : _rejectionMessages["species_unmatched"]!,
-      confidence: finalConf,
+      label: accepted ? label : _rejectionMessages["not_recognized"]!,
+      confidence: branchAConfidence,
       secondBest: secondBest,
       greenRatio: greenRatio,
       shapeScore: shapeScore,

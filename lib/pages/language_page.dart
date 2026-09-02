@@ -1,6 +1,26 @@
+// ═══════════════════════════════════════════════════════════════════
+//  APP FLOW MAP
+//
+//   AppEntryPage
+//         |
+//         v
+//   LanguagePage  <-- YOU ARE HERE  (first onboarding screen)
+//         |
+//         v
+//   DisclaimerPage
+//         |
+//         v
+//   ReminderPage
+//         |
+//         v
+//   TutorialWalkthroughPage
+//         |  (also calls AppSettings.markOnboardingComplete() here)
+//         v
+//   MenuPage
+// ═══════════════════════════════════════════════════════════════════
 import 'package:flutter/material.dart';
 import 'skeu_theme.dart';
-import 'tutorial_prompt_page.dart';
+import 'disclaimer_page.dart';
 import 'app_settings.dart';
 
 class LanguagePage extends StatelessWidget {
@@ -152,7 +172,7 @@ class LanguagePage extends StatelessWidget {
                       Navigator.pushReplacement(
                         context,
                         MaterialPageRoute(
-                            builder: (_) => const TutorialPromptPage()),
+                            builder: (_) => const DisclaimerPage()),
                       );
                     },
                   ),
